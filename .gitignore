@@ -38,3 +38,5 @@ build/
 
 # sbt
 .bsp/
+
+glide-logs/
