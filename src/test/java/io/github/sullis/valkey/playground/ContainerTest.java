@@ -80,5 +80,9 @@ public class ContainerTest {
         .contains("role:master");
 
     // LOGGER.info("client.info: " + clientInfo);
+
+    Object[] roleResponse = (Object[]) client.customCommand(new String[] { "role" }).get();
+    String roleName = roleResponse[0].toString();
+    assertThat(roleName).isEqualTo("master");
   }
 }
