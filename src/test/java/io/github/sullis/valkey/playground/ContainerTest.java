@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class ContainerTest {
   private static final Logger LOGGER = LoggerFactory.getLogger(ContainerTest.class);
-  private static final int CLUSTER_SIZE = 3;
+  private static final int CLUSTER_SIZE = 2;
   private static final List<GenericContainer> containers = createValkeyCluster(CLUSTER_SIZE, 6379);
 
   private static List<GenericContainer> createValkeyCluster(final int n, final int basePort) {
