@@ -54,7 +54,10 @@ public class ContainerTest {
 
   @BeforeAll
   static void beforeAll() {
-    containers.forEach(ContainerTest::logStatus);
+    containers.forEach(c -> {
+      logStatus(c);
+      assertThat(c.isRunning()).isTrue();
+    });
   }
 
   @AfterAll
