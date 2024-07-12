@@ -20,15 +20,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class ContainerTest {
   private static final Logger LOGGER = LoggerFactory.getLogger(ContainerTest.class);
-  private static final int CLUSTER_SIZE = 2;
-  private static final List<GenericContainer> containers = createValkeyCluster(CLUSTER_SIZE, 6379);
+  private static final int NUM_REPLICAS = 1;
+  private static final List<GenericContainer> containers = createValkeyCluster(NUM_REPLICAS, 6379);
 
-  private static List<GenericContainer> createValkeyCluster(final int n, final int basePort) {
+  private static List<GenericContainer> createValkeyCluster(final int numReplicas, final int basePort) {
     Network network = Network.newNetwork();
     GenericContainer primary = null;
     List<GenericContainer> cluster = new ArrayList<>();
     int port = basePort;
-    for (int i = 0; i < n; i++) {
+    final int numContainers = 1 + numReplicas;
+    for (int i = 0; i < numContainers; i++) {
       StringBuilder command = new StringBuilder();
       command.append("valkey-server --port " + port);
       GenericContainer container = new GenericContainer(DockerImageName.parse("valkey/valkey"))
@@ -54,6 +55,7 @@ public class ContainerTest {
 
   @BeforeAll
   static void beforeAll() {
+    assertThat(containers).isNotEmpty();
     containers.forEach(c -> {
       logStatus(c);
       assertThat(c.isRunning()).isTrue();
