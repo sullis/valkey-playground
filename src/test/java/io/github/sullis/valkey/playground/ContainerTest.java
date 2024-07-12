@@ -74,19 +74,18 @@ public class ContainerTest {
       LOGGER.info("NodeAddress: " + address.getHost() + ":" + address.getPort());
       configBuilder.address(address);
     });
-    GlideClient client = GlideClient.createClient(configBuilder.build()).get();
-    assertThat(client.ping("Hello world").get()).isEqualTo("Hello world");
 
-    String clientInfo = client.info().get();
-    assertThat(clientInfo)
-        .contains("connected_clients:1")
-        .contains("server_name:valkey")
-        .contains("role:master");
+    try (GlideClient client = GlideClient.createClient(configBuilder.build()).get()) {
+      assertThat(client.ping("Hello world").get()).isEqualTo("Hello world");
 
-    // LOGGER.info("client.info: " + clientInfo);
+      String clientInfo = client.info().get();
+      assertThat(clientInfo).contains("connected_clients:1").contains("server_name:valkey").contains("role:master");
 
-    Object[] roleResponse = (Object[]) client.customCommand(new String[] { "role" }).get();
-    String roleName = roleResponse[0].toString();
-    assertThat(roleName).isEqualTo("master");
+      // LOGGER.info("client.info: " + clientInfo);
+
+      Object[] roleResponse = (Object[]) client.customCommand(new String[]{"role"}).get();
+      String roleName = roleResponse[0].toString();
+      assertThat(roleName).isEqualTo("master");
+    }
   }
 }
