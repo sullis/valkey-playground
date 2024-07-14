@@ -20,9 +20,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class ContainerTest {
   private static final Logger LOGGER = LoggerFactory.getLogger(ContainerTest.class);
-  private static final List<GenericContainer> containers = createValkeyCluster(1, 6379);
+  private static final List<GenericContainer> containers = createValkeyContainers(1, 6379);
 
-  private static List<GenericContainer> createValkeyCluster(final int numReplicas, final int basePort) {
+  private static List<GenericContainer> createValkeyContainers(final int numReplicas, final int basePort) {
     Network network = Network.newNetwork();
     GenericContainer primary = null;
     List<GenericContainer> cluster = new ArrayList<>();
