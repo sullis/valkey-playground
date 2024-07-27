@@ -3,7 +3,10 @@ package io.github.sullis.valkey.playground;
 import glide.api.models.GlideString;
 import glide.api.models.configuration.BackoffStrategy;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -99,8 +102,15 @@ public class ContainerTest {
       String roleName = roleResponse[0].toString();
       assertThat(roleName).isEqualTo("master");
 
+      Set<String> keys = new HashSet<>();
+      for (int i = 0; i < 5; i++) {
+        String key = UUID.randomUUID().toString();
+        keys.add(key);
+        client.set(key, "value-" + key).get();
+      }
+
       GlideString randomKeyBinary = client.randomKeyBinary().get();
-      // TODO assertThat(randomKeyBinary).isNotNull();
+      assertThat(randomKeyBinary).isNotNull();
 
     }
   }
