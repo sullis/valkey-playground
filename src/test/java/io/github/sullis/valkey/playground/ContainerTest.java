@@ -68,7 +68,7 @@ public class ContainerTest {
 
   @Test
   void testValkeyClient() throws Exception {
-    GlideClientConfiguration.GlideClientConfigurationBuilder configBuilder = GlideClientConfiguration.builder();
+    GlideClientConfiguration.GlideClientConfigurationBuilder<?, ?> configBuilder = GlideClientConfiguration.builder();
     containers.forEach(c -> {
       NodeAddress address =  NodeAddress.builder().host(c.getHost()).port(c.getFirstMappedPort()).build();
       LOGGER.info("NodeAddress: " + address.getHost() + ":" + address.getPort());
