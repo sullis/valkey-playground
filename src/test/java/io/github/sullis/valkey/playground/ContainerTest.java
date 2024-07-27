@@ -102,11 +102,17 @@ public class ContainerTest {
       String roleName = roleResponse[0].toString();
       assertThat(roleName).isEqualTo("master");
 
+      final String valuePrefix = "value-";
+
       Set<String> keys = new HashSet<>();
       for (int i = 0; i < 5; i++) {
         String key = UUID.randomUUID().toString();
         keys.add(key);
-        client.set(key, "value-" + key).get();
+        client.set(key, valuePrefix + key).get();
+      }
+
+      for (String key : keys) {
+        assertThat(client.get(key).get()).startsWith(valuePrefix);
       }
 
       GlideString randomKeyBinary = client.randomKeyBinary().get();
