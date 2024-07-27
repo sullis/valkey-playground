@@ -1,5 +1,6 @@
 package io.github.sullis.valkey.playground;
 
+import glide.api.models.GlideString;
 import glide.api.models.configuration.BackoffStrategy;
 import java.util.ArrayList;
 import java.util.List;
@@ -97,6 +98,10 @@ public class ContainerTest {
       Object[] roleResponse = (Object[]) client.customCommand(new String[]{"role"}).get();
       String roleName = roleResponse[0].toString();
       assertThat(roleName).isEqualTo("master");
+
+      GlideString randomKeyBinary = client.randomKeyBinary().get();
+      // TODO assertThat(randomKeyBinary).isNotNull();
+
     }
   }
 }
