@@ -1,5 +1,6 @@
 package io.github.sullis.valkey.playground;
 
+import glide.api.models.configuration.BackoffStrategy;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.AfterAll;
@@ -31,7 +32,7 @@ public class ContainerTest {
     for (int i = 0; i < numContainers; i++) {
       StringBuilder command = new StringBuilder();
       command.append("valkey-server --port " + port);
-      GenericContainer container = new GenericContainer(DockerImageName.parse("valkey/valkey"))
+      GenericContainer<?> container = new GenericContainer(DockerImageName.parse("valkey/valkey"))
           .withNetwork(network)
           .withExposedPorts(port)
           .withLogConsumer(new Slf4jLogConsumer(LOGGER));
@@ -48,8 +49,11 @@ public class ContainerTest {
     return cluster;
   }
 
-  private static void logStatus(final GenericContainer container) {
-    LOGGER.info("container " + container.getContainerId() + " isRunning=" + container.isRunning());
+  private static void logStatus(final GenericContainer<?> container) {
+    LOGGER.info("container isRunning="
+        + container.isRunning()
+        + " "
+        + container.getContainerId());
   }
 
   @BeforeAll
@@ -75,7 +79,14 @@ public class ContainerTest {
       configBuilder.address(address);
     });
 
-    try (GlideClient client = GlideClient.createClient(configBuilder.build()).get()) {
+    BackoffStrategy backoff = BackoffStrategy.builder().numOfRetries(3).factor(2).exponentBase(10).build();
+    configBuilder.reconnectStrategy(backoff);
+
+    GlideClientConfiguration config = configBuilder.build();
+
+    // LOGGER.info("client config: " + config.getAddresses());
+
+    try (GlideClient client = GlideClient.createClient(config).get()) {
       assertThat(client.ping("Hello world").get()).isEqualTo("Hello world");
 
       String clientInfo = client.info().get();
