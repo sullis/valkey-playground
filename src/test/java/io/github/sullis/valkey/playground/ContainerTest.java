@@ -88,7 +88,7 @@ public class ContainerTest {
 
     GlideClientConfiguration config = configBuilder.build();
 
-    // LOGGER.info("client config: " + config.getAddresses());
+    LOGGER.info("client config: " + config);
 
     try (GlideClient client = GlideClient.createClient(config).get()) {
       assertThat(client.ping("Hello world").get()).isEqualTo("Hello world");
