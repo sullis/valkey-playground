@@ -36,7 +36,7 @@ public class ContainerTest {
     for (int i = 0; i < numContainers; i++) {
       StringBuilder command = new StringBuilder();
       command.append("valkey-server --port " + port);
-      GenericContainer<?> container = new GenericContainer(DockerImageName.parse("valkey/valkey"))
+      GenericContainer<?> container = new GenericContainer(DockerImageName.parse("valkey/valkey:8.0.0-rc1"))
           .withNetwork(network)
           .withExposedPorts(port)
           .withLogConsumer(new Slf4jLogConsumer(LOGGER));
