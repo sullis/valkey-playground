@@ -79,7 +79,7 @@ public class ContainerTest {
     GlideClientConfiguration.GlideClientConfigurationBuilder<?, ?> configBuilder = GlideClientConfiguration.builder();
     containers.forEach(c -> {
       NodeAddress address =  NodeAddress.builder().host(c.getHost()).port(c.getFirstMappedPort()).build();
-      LOGGER.info("NodeAddress: " + address.getHost() + ":" + address.getPort());
+      LOGGER.info(address.toString());
       configBuilder.address(address);
     });
 
