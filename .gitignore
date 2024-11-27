@@ -39,4 +39,6 @@ build/
 # sbt
 .bsp/
 
+pom.xml.versionsBackup
+
 glide-logs/
