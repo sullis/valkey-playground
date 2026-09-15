@@ -11,9 +11,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.slf4j.Logger;
@@ -40,18 +42,33 @@ public class ContainerTest {
    * so it cannot use the host/mapped-port pair returned by getHost()/getFirstMappedPort().
    */
   private static final String PRIMARY_ALIAS = "valkey-primary";
-  private static final int PRIMARY_PORT = 6379;
+
+  /**
+   * Every container gets its own network namespace, so the primary and its replicas can all
+   * listen on the same port without colliding.
+   */
+  private static final int VALKEY_PORT = 6379;
   private static final Duration TIMEOUT = Duration.ofSeconds(15);
 
-  private static final List<GenericContainer<?>> containers = createValkeyContainers(1, PRIMARY_PORT);
+  private static Network network;
+  private static List<GenericContainer<?>> containers;
 
-  private static List<GenericContainer<?>> createValkeyContainers(final int numReplicas, final int basePort) {
-    Network network = Network.newNetwork();
+  /**
+   * Used for keyspace cleanup between tests. Tests that exercise client behaviour build their own
+   * clients so that each can pick its own {@link ReadFrom}.
+   */
+  private static GlideClient adminClient;
+
+  /**
+   * Starts a primary plus {@code numReplicas} replicas, in that order: a replica's wait strategy
+   * blocks on its initial sync, which cannot complete until the primary is accepting connections.
+   */
+  private static List<GenericContainer<?>> startValkeyContainers(final int numReplicas) {
+    network = Network.newNetwork();
     List<GenericContainer<?>> cluster = new ArrayList<>();
-    int port = basePort;
     final int numContainers = 1 + numReplicas;
     for (int i = 0; i < numContainers; i++) {
-      List<String> command = new ArrayList<>(List.of("valkey-server", "--port", String.valueOf(port),
+      List<String> command = new ArrayList<>(List.of("valkey-server", "--port", String.valueOf(VALKEY_PORT),
           // Without this the primary waits repl-diskless-sync-delay (5 seconds by default) before
           // forking for the replica's initial sync, which is dead time in every run of this class.
           "--repl-diskless-sync-delay", "0",
@@ -59,21 +76,24 @@ public class ContainerTest {
           "--save", ""));
       GenericContainer<?> container = new GenericContainer<>(IMAGE)
           .withNetwork(network)
-          .withExposedPorts(port)
-          .withLogConsumer(new Slf4jLogConsumer(LOGGER));
+          .withExposedPorts(VALKEY_PORT)
+          .withLogConsumer(new Slf4jLogConsumer(LOGGER))
+          .withStartupTimeout(TIMEOUT);
       if (i == 0) {
-        container = container.withNetworkAliases(PRIMARY_ALIAS);
+        // The default port-listening probe can succeed before the server is actually serving
+        // commands, so wait for the line valkey logs once it is ready.
+        container = container.withNetworkAliases(PRIMARY_ALIAS)
+            .waitingFor(Wait.forLogMessage(".*Ready to accept connections.*\\n", 1));
       } else {
         // Replicate from the primary's in-network address, not its host-mapped port.
-        command.addAll(List.of("--replicaof", PRIMARY_ALIAS, String.valueOf(basePort)));
+        command.addAll(List.of("--replicaof", PRIMARY_ALIAS, String.valueOf(VALKEY_PORT)));
         // Do not hand out the replica until it has finished its initial sync.
-        container = container.withStartupTimeout(TIMEOUT)
-            .waitingFor(Wait.forLogMessage(".*REPLICA sync: Finished with success.*\\n", 1));
+        container = container.waitingFor(Wait.forLogMessage(".*REPLICA sync: Finished with success.*\\n", 1));
       }
       container = container.withCommand(command.toArray(new String[0]));
       cluster.add(container);
       container.start();
-      port++;
+      LOGGER.info("started container id={} role={}", container.getContainerId(), i == 0 ? "primary" : "replica");
     }
     return cluster;
   }
@@ -84,6 +104,14 @@ public class ContainerTest {
 
   private static GenericContainer<?> replica() {
     return containers.get(1);
+  }
+
+  /**
+   * Awaits a Glide command, so that call sites read as the behaviour under test rather than as
+   * future plumbing.
+   */
+  private static <T> T get(final CompletableFuture<T> future) throws Exception {
+    return future.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
   }
 
   /**
@@ -109,16 +137,15 @@ public class ContainerTest {
         .build();
 
     LOGGER.info("client config: {}", config);
-    return GlideClient.createClient(config).get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+    return get(GlideClient.createClient(config));
   }
 
   private static String replicationInfo(final GlideClient client) throws Exception {
-    return client.info(new Section[]{Section.REPLICATION}).get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+    return get(client.info(new Section[]{Section.REPLICATION}));
   }
 
   private static String role(final GlideClient client) throws Exception {
-    Object[] response = (Object[]) client.customCommand(new String[]{"role"})
-        .get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+    Object[] response = (Object[]) get(client.customCommand(new String[]{"role"}));
     return response[0].toString();
   }
 
@@ -131,38 +158,48 @@ public class ContainerTest {
    * confirms the process itself ran -- the reply has to be asserted on by the caller.
    */
   private static String valkeyCli(final GenericContainer<?> container, final String... args) throws Exception {
-    List<String> command = new ArrayList<>(List.of("valkey-cli", "-p", String.valueOf(container.getExposedPorts().get(0))));
+    List<String> command = new ArrayList<>(List.of("valkey-cli", "-p", String.valueOf(VALKEY_PORT)));
     command.addAll(List.of(args));
     Container.ExecResult result = container.execInContainer(command.toArray(new String[0]));
     assertThat(result.getExitCode()).as("valkey-cli process exit code").isZero();
     return result.getStdout();
   }
 
-  private static void logStatus(final GenericContainer<?> container) {
-    LOGGER.info("container isRunning={} id={}", container.isRunning(), container.getContainerId());
-  }
-
   @BeforeAll
-  static void beforeAll() {
-    assertThat(containers).hasSize(2);
-    containers.forEach(c -> {
-      logStatus(c);
-      assertThat(c.isRunning()).isTrue();
-    });
+  static void beforeAll() throws Exception {
+    containers = startValkeyContainers(1);
+    adminClient = newClient(ReadFrom.PRIMARY, primary());
   }
 
   @AfterAll
-  static void afterAll() {
-    containers.forEach(GenericContainer::stop);
+  static void afterAll() throws Exception {
+    if (adminClient != null) {
+      adminClient.close();
+    }
+    if (containers != null) {
+      containers.forEach(GenericContainer::stop);
+    }
+    if (network != null) {
+      network.close();
+    }
+  }
+
+  /**
+   * Tests in this class share one primary, so clear the keyspace between them rather than let each
+   * test observe keys written by its predecessors. FLUSHALL replicates, so this clears the replica
+   * too.
+   */
+  @BeforeEach
+  void flushKeyspace() throws Exception {
+    get(adminClient.flushall());
   }
 
   @Test
   void testValkeyClient() throws Exception {
     try (GlideClient client = newClient(ReadFrom.PRIMARY, primary())) {
-      assertThat(client.ping("Hello world").get(TIMEOUT.toSeconds(), TimeUnit.SECONDS))
-          .isEqualTo("Hello world");
+      assertThat(get(client.ping("Hello world"))).isEqualTo("Hello world");
 
-      String clientInfo = client.info().get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+      String clientInfo = get(client.info());
       assertThat(clientInfo)
           .containsPattern("connected_clients:[1-9][0-9]*")
           .contains("server_name:valkey")
@@ -176,20 +213,18 @@ public class ContainerTest {
       for (int i = 0; i < 5; i++) {
         String key = UUID.randomUUID().toString();
         keys.add(key);
-        client.set(key, valuePrefix + key).get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+        get(client.set(key, valuePrefix + key));
       }
 
       for (String key : keys) {
-        assertThat(client.get(key).get(TIMEOUT.toSeconds(), TimeUnit.SECONDS))
-            .isEqualTo(valuePrefix + key);
+        assertThat(get(client.get(key))).isEqualTo(valuePrefix + key);
       }
 
-      // RANDOMKEY draws from the whole keyspace, which other tests in this class also write to,
-      // so assert the invariant that holds regardless of ordering: the key it returns exists.
-      GlideString randomKeyBinary = client.randomKeyBinary().get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+      // The keyspace was flushed before this test and only the keys above were written, so
+      // RANDOMKEY has to draw from exactly that set.
+      GlideString randomKeyBinary = get(client.randomKeyBinary());
       assertThat(randomKeyBinary).isNotNull();
-      assertThat(client.exists(new GlideString[]{randomKeyBinary}).get(TIMEOUT.toSeconds(), TimeUnit.SECONDS))
-          .isEqualTo(1L);
+      assertThat(randomKeyBinary.getString()).isIn(keys);
     }
   }
 
@@ -212,11 +247,11 @@ public class ContainerTest {
 
       String key = UUID.randomUUID().toString();
       String value = "replicated-" + key;
-      primaryClient.set(key, value).get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+      get(primaryClient.set(key, value));
 
       // Replication is asynchronous, so poll the replica until the write lands.
       await().atMost(TIMEOUT).untilAsserted(() ->
-          assertThat(replicaClient.get(key).get(TIMEOUT.toSeconds(), TimeUnit.SECONDS)).isEqualTo(value));
+          assertThat(get(replicaClient.get(key))).isEqualTo(value));
     }
   }
 
