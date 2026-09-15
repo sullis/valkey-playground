@@ -50,7 +50,13 @@ public class ContainerTest {
   private static final Duration TIMEOUT = Duration.ofSeconds(15);
 
   private static Network network;
-  private static List<GenericContainer<?>> containers;
+
+  /**
+   * Populated as containers start rather than once they all have: a container registered here
+   * before its {@code start()} is one {@link #afterAll()} can still stop if a later container in
+   * the cluster never comes up.
+   */
+  private static final List<GenericContainer<?>> containers = new ArrayList<>();
 
   /**
    * Used for keyspace cleanup between tests. Tests that exercise client behaviour build their own
@@ -62,11 +68,13 @@ public class ContainerTest {
    * Starts a primary plus {@code numReplicas} replicas, in that order: a replica's wait strategy
    * blocks on its initial sync, which cannot complete until the primary is accepting connections.
    */
-  private static List<GenericContainer<?>> startValkeyContainers(final int numReplicas) {
-    network = Network.newNetwork();
-    List<GenericContainer<?>> cluster = new ArrayList<>();
+  private static void startValkeyContainers(final int numReplicas) {
     final int numContainers = 1 + numReplicas;
     for (int i = 0; i < numContainers; i++) {
+      final boolean isPrimary = i == 0;
+      // slf4j interleaves every container's output into one stream, so without a prefix per
+      // container the only hint at which node logged a line is valkey's own M/S role character.
+      final String role = isPrimary ? "primary" : "replica-" + (i - 1);
       List<String> command = new ArrayList<>(List.of("valkey-server", "--port", String.valueOf(VALKEY_PORT),
           // Without this the primary waits repl-diskless-sync-delay (5 seconds by default) before
           // forking for the replica's initial sync, which is dead time in every run of this class.
@@ -76,9 +84,9 @@ public class ContainerTest {
       GenericContainer<?> container = new GenericContainer<>(IMAGE)
           .withNetwork(network)
           .withExposedPorts(VALKEY_PORT)
-          .withLogConsumer(new Slf4jLogConsumer(LOGGER))
+          .withLogConsumer(new Slf4jLogConsumer(LOGGER).withPrefix(role))
           .withStartupTimeout(TIMEOUT);
-      if (i == 0) {
+      if (isPrimary) {
         // The default port-listening probe can succeed before the server is actually serving
         // commands, so wait for the line valkey logs once it is ready.
         container = container.withNetworkAliases(PRIMARY_ALIAS)
@@ -90,11 +98,10 @@ public class ContainerTest {
         container = container.waitingFor(Wait.forLogMessage(".*REPLICA sync: Finished with success.*\\n", 1));
       }
       container = container.withCommand(command.toArray(new String[0]));
-      cluster.add(container);
+      containers.add(container);
       container.start();
-      LOGGER.info("started container id={} role={}", container.getContainerId(), i == 0 ? "primary" : "replica");
+      LOGGER.info("started container id={} role={}", container.getContainerId(), role);
     }
-    return cluster;
   }
 
   private static GenericContainer<?> primary() {
@@ -135,7 +142,6 @@ public class ContainerTest {
         .reconnectStrategy(backoff)
         .build();
 
-    LOGGER.info("client config: {}", config);
     return get(GlideClient.createClient(config));
   }
 
@@ -186,20 +192,24 @@ public class ContainerTest {
 
   @BeforeAll
   static void beforeAll() throws Exception {
-    containers = startValkeyContainers(1);
+    network = Network.newNetwork();
+    startValkeyContainers(1);
     adminClient = newClient(ReadFrom.PRIMARY, primary());
   }
 
   @AfterAll
   static void afterAll() throws Exception {
-    if (adminClient != null) {
-      adminClient.close();
-    }
-    if (containers != null) {
+    try {
+      if (adminClient != null) {
+        adminClient.close();
+      }
+    } finally {
+      // Stop the containers before the network they are attached to, and do it even if closing
+      // the client above failed -- a leaked container outlives the JVM, a leaked client does not.
       containers.forEach(GenericContainer::stop);
-    }
-    if (network != null) {
-      network.close();
+      if (network != null) {
+        network.close();
+      }
     }
   }
 
