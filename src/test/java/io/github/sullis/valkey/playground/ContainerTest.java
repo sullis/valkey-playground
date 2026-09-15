@@ -30,7 +30,6 @@ import glide.api.models.configuration.GlideClientConfiguration;
 import glide.api.models.configuration.NodeAddress;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 
 
 public class ContainerTest {
@@ -140,6 +139,26 @@ public class ContainerTest {
     return get(GlideClient.createClient(config));
   }
 
+  /**
+   * Blocks until every replica has acknowledged the writes already issued on {@code client}'s
+   * connection, so that a replica-side read afterwards is a deterministic assertion instead of a
+   * poll. WAIT returns the number of replicas that acknowledged, which is asserted here: a
+   * timeout shows up as a short count rather than as a later, more confusing read failure.
+   *
+   * <p>{@code client} has to be the one whose writes are being waited on -- WAIT reports on the
+   * offset of the connection it arrives on -- and it has to route to the primary, since a replica
+   * has no replicas of its own to wait for.
+   */
+  private static void awaitReplication(final GlideClient client) throws Exception {
+    final long expectedReplicas = containers.size() - 1;
+    if (expectedReplicas == 0) {
+      return;
+    }
+    assertThat(get(client.wait(expectedReplicas, TIMEOUT.toMillis())))
+        .as("replicas that acknowledged the write")
+        .isEqualTo(expectedReplicas);
+  }
+
   private static String replicationInfo(final GlideClient client) throws Exception {
     return get(client.info(new Section[]{Section.REPLICATION}));
   }
@@ -187,11 +206,12 @@ public class ContainerTest {
   /**
    * Tests in this class share one primary, so clear the keyspace between them rather than let each
    * test observe keys written by its predecessors. FLUSHALL replicates, so this clears the replica
-   * too.
+   * too -- but only once the replica has applied it, hence the barrier.
    */
   @BeforeEach
   void flushKeyspace() throws Exception {
     get(adminClient.flushall());
+    awaitReplication(adminClient);
   }
 
   @Test
@@ -249,9 +269,11 @@ public class ContainerTest {
       String value = "replicated-" + key;
       get(primaryClient.set(key, value));
 
-      // Replication is asynchronous, so poll the replica until the write lands.
-      await().atMost(TIMEOUT).untilAsserted(() ->
-          assertThat(get(replicaClient.get(key))).isEqualTo(value));
+      // Replication is asynchronous, so wait for the replica to acknowledge the write before
+      // reading it back. Reads on replicaClient land on the replica, so this asserts that the
+      // value replicated rather than that the primary still has it.
+      awaitReplication(primaryClient);
+      assertThat(get(replicaClient.get(key))).isEqualTo(value);
     }
   }
 
