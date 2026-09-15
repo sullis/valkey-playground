@@ -49,8 +49,12 @@ public class ContainerTest {
     int port = basePort;
     final int numContainers = 1 + numReplicas;
     for (int i = 0; i < numContainers; i++) {
-      StringBuilder command = new StringBuilder();
-      command.append("valkey-server --port " + port);
+      List<String> command = new ArrayList<>(List.of("valkey-server", "--port", String.valueOf(port),
+          // Without this the primary waits repl-diskless-sync-delay (5 seconds by default) before
+          // forking for the replica's initial sync, which is dead time in every run of this class.
+          "--repl-diskless-sync-delay", "0",
+          // Nothing here reads persisted data, so skip RDB snapshotting entirely.
+          "--save", ""));
       GenericContainer<?> container = new GenericContainer<>(IMAGE)
           .withNetwork(network)
           .withExposedPorts(port)
@@ -59,12 +63,12 @@ public class ContainerTest {
         container = container.withNetworkAliases(PRIMARY_ALIAS);
       } else {
         // Replicate from the primary's in-network address, not its host-mapped port.
-        command.append(" --replicaof " + PRIMARY_ALIAS + " " + basePort);
+        command.addAll(List.of("--replicaof", PRIMARY_ALIAS, String.valueOf(basePort)));
         // Do not hand out the replica until it has finished its initial sync.
         container = container.withStartupTimeout(TIMEOUT)
             .waitingFor(Wait.forLogMessage(".*REPLICA sync: Finished with success.*\\n", 1));
       }
-      container = container.withCommand(command.toString());
+      container = container.withCommand(command.toArray(new String[0]));
       cluster.add(container);
       container.start();
       port++;
