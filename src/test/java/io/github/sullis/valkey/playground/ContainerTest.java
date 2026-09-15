@@ -3,8 +3,10 @@ package io.github.sullis.valkey.playground;
 import glide.api.models.GlideString;
 import glide.api.models.commands.InfoOptions.Section;
 import glide.api.models.configuration.BackoffStrategy;
+import glide.api.models.configuration.ReadFrom;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -84,16 +86,25 @@ public class ContainerTest {
     return containers.get(1);
   }
 
-  private static GlideClient newClient(final GenericContainer<?> container) throws Exception {
-    NodeAddress address = NodeAddress.builder()
-        .host(container.getHost())
-        .port(container.getFirstMappedPort())
-        .build();
-    LOGGER.info("connecting to {}", address);
+  /**
+   * Builds a standalone client over the host-mapped addresses of the given containers.
+   *
+   * <p>A standalone client always resolves a primary from its address list and rejects a list that
+   * only contains replicas ("No primary node found"), so reading replica-side state means handing
+   * it both addresses and asking for {@link ReadFrom#PREFER_REPLICA}: writes still go to the
+   * primary, while reads -- INFO included -- are served by the replica.
+   */
+  private static GlideClient newClient(final ReadFrom readFrom, final GenericContainer<?>... targets)
+      throws Exception {
+    List<NodeAddress> addresses = Arrays.stream(targets)
+        .map(c -> NodeAddress.builder().host(c.getHost()).port(c.getFirstMappedPort()).build())
+        .toList();
+    LOGGER.info("connecting to {} readFrom={}", addresses, readFrom);
 
     BackoffStrategy backoff = BackoffStrategy.builder().numOfRetries(3).factor(2).exponentBase(10).build();
     GlideClientConfiguration config = GlideClientConfiguration.builder()
-        .address(address)
+        .addresses(addresses)
+        .readFrom(readFrom)
         .reconnectStrategy(backoff)
         .build();
 
@@ -105,16 +116,25 @@ public class ContainerTest {
     return client.info(new Section[]{Section.REPLICATION}).get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
   }
 
+  private static String role(final GlideClient client) throws Exception {
+    Object[] response = (Object[]) client.customCommand(new String[]{"role"})
+        .get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+    return response[0].toString();
+  }
+
   /**
-   * Runs valkey-cli inside a container. A Glide standalone client always resolves a primary from
-   * its address list and rejects an address that reports role:slave ("No primary node found"),
-   * so replica-side server state has to be inspected in-container.
+   * Runs valkey-cli inside a container. This is the only way to send a write to the replica: a
+   * standalone client routes writes to whichever node it resolved as primary, and standalone mode
+   * has no per-command routing (that is cluster-client only).
+   *
+   * <p>valkey-cli exits 0 even when the server replies with an error, so the exit code below only
+   * confirms the process itself ran -- the reply has to be asserted on by the caller.
    */
   private static String valkeyCli(final GenericContainer<?> container, final String... args) throws Exception {
     List<String> command = new ArrayList<>(List.of("valkey-cli", "-p", String.valueOf(container.getExposedPorts().get(0))));
     command.addAll(List.of(args));
     Container.ExecResult result = container.execInContainer(command.toArray(new String[0]));
-    assertThat(result.getExitCode()).as("valkey-cli " + String.join(" ", args)).isZero();
+    assertThat(result.getExitCode()).as("valkey-cli process exit code").isZero();
     return result.getStdout();
   }
 
@@ -138,7 +158,7 @@ public class ContainerTest {
 
   @Test
   void testValkeyClient() throws Exception {
-    try (GlideClient client = newClient(primary())) {
+    try (GlideClient client = newClient(ReadFrom.PRIMARY, primary())) {
       assertThat(client.ping("Hello world").get(TIMEOUT.toSeconds(), TimeUnit.SECONDS))
           .isEqualTo("Hello world");
 
@@ -148,10 +168,7 @@ public class ContainerTest {
           .contains("server_name:valkey")
           .contains("role:master");
 
-      Object[] roleResponse = (Object[]) client.customCommand(new String[]{"role"})
-          .get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-      String roleName = roleResponse[0].toString();
-      assertThat(roleName).isEqualTo("master");
+      assertThat(role(client)).isEqualTo("master");
 
       final String valuePrefix = "value-";
 
@@ -178,18 +195,20 @@ public class ContainerTest {
 
   @Test
   void testReplication() throws Exception {
-    try (GlideClient primaryClient = newClient(primary())) {
+    try (GlideClient primaryClient = newClient(ReadFrom.PRIMARY, primary());
+         GlideClient replicaClient = newClient(ReadFrom.PREFER_REPLICA, primary(), replica())) {
       assertThat(replicationInfo(primaryClient))
           .contains("role:master")
           .contains("connected_slaves:1")
           .containsPattern("slave0:ip=.*,state=online");
 
-      assertThat(valkeyCli(replica(), "info", "replication"))
+      // Reads on replicaClient land on the replica, so this is the replica's own view.
+      assertThat(replicationInfo(replicaClient))
           .contains("role:slave")
           .contains("master_link_status:up")
           .contains("slave_read_only:1");
 
-      assertThat(valkeyCli(replica(), "role")).startsWith("slave");
+      assertThat(role(replicaClient)).isEqualTo("slave");
 
       String key = UUID.randomUUID().toString();
       String value = "replicated-" + key;
@@ -197,7 +216,7 @@ public class ContainerTest {
 
       // Replication is asynchronous, so poll the replica until the write lands.
       await().atMost(TIMEOUT).untilAsserted(() ->
-          assertThat(valkeyCli(replica(), "get", key)).contains(value));
+          assertThat(replicaClient.get(key).get(TIMEOUT.toSeconds(), TimeUnit.SECONDS)).isEqualTo(value));
     }
   }
 
