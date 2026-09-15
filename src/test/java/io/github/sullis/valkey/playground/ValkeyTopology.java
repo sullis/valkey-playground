@@ -9,6 +9,9 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import org.junit.jupiter.api.extension.AfterAllCallback;
+import org.junit.jupiter.api.extension.BeforeAllCallback;
+import org.junit.jupiter.api.extension.ExtensionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.Container;
@@ -23,15 +26,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * A running Valkey topology -- one primary plus {@code numReplicas} replicas, each in its own
- * container on a private Docker network -- together with the client, keyspace and exec plumbing
+ * container on a private Docker network -- together with the clients, keyspace and exec plumbing
  * needed to drive it.
  *
- * <p>Owned by the test class that {@link #start started} it, which is expected to hold it in a
- * static field and {@link #close} it in {@code @AfterAll}: starting a topology costs seconds, so
- * it is shared across the methods of a class rather than rebuilt per method.
+ * <p>This is replication, not cluster mode: replicas are attached with {@code --replicaof} and
+ * every client here is a standalone {@link GlideClient}, so there are no hash slots and no
+ * {@code CLUSTER} membership involved.
+ *
+ * <p>A test class owns one of these as a static field annotated {@code @RegisterExtension}, which
+ * leaves the lifecycle to JUnit: started once before the class and stopped after it, including
+ * when the start itself fails partway. Starting a topology costs seconds, so it is shared across
+ * the methods of a class rather than rebuilt per method.
  */
-final class ValkeyCluster implements AutoCloseable {
-  private static final Logger LOGGER = LoggerFactory.getLogger(ValkeyCluster.class);
+final class ValkeyTopology implements BeforeAllCallback, AfterAllCallback {
+  private static final Logger LOGGER = LoggerFactory.getLogger(ValkeyTopology.class);
   private static final DockerImageName IMAGE = DockerImageName.parse("valkey/valkey:9.1.2");
 
   /**
@@ -52,45 +60,58 @@ final class ValkeyCluster implements AutoCloseable {
   /** Bounds {@link #awaitReplication}, which fails as a short acknowledgement count. */
   private static final Duration REPLICATION_TIMEOUT = Duration.ofSeconds(15);
 
+  private final int numReplicas;
+
   private final Network network = Network.newNetwork();
 
   /**
    * Populated as containers start rather than once they all have: a container registered here
    * before its {@code start()} is one {@link #close()} can still stop if a later container in the
-   * cluster never comes up.
+   * topology never comes up.
    */
   private final List<GenericContainer<?>> containers = new ArrayList<>();
 
   /**
-   * Used for keyspace cleanup between tests. Tests that exercise client behaviour build their own
-   * clients so that each can pick its own {@link ReadFrom}.
+   * Clients are built on first use and kept for the life of the topology: each one costs a Glide
+   * native runtime and its connections, which is not worth paying per test method. Tracked here so
+   * that {@link #close()} closes whichever ones a test class actually asked for.
    */
-  private GlideClient adminClient;
+  private final List<GlideClient> clients = new ArrayList<>();
 
-  private ValkeyCluster() {
+  private GlideClient primaryClient;
+  private GlideClient replicaReadingClient;
+
+  private ValkeyTopology(final int numReplicas) {
+    this.numReplicas = numReplicas;
   }
 
-  /**
-   * Starts a primary plus {@code numReplicas} replicas and connects the admin client. Nothing is
-   * left running if any part of that fails.
-   */
-  static ValkeyCluster start(final int numReplicas) throws Exception {
-    ValkeyCluster cluster = new ValkeyCluster();
+  /** Declares a topology; nothing starts until JUnit calls {@link #beforeAll}. */
+  static ValkeyTopology withReplicas(final int numReplicas) {
+    return new ValkeyTopology(numReplicas);
+  }
+
+  @Override
+  public void beforeAll(final ExtensionContext context) {
     try {
-      cluster.startContainers(numReplicas);
-      cluster.adminClient = cluster.newClient(ReadFrom.PRIMARY, cluster.primary());
-    } catch (Exception e) {
-      cluster.close();
+      startContainers();
+    } catch (RuntimeException e) {
+      // JUnit does not call afterAll for a failed beforeAll, so whatever did come up has to be
+      // torn down here rather than left running.
+      close();
       throw e;
     }
-    return cluster;
+  }
+
+  @Override
+  public void afterAll(final ExtensionContext context) {
+    close();
   }
 
   /**
    * Starts the nodes in primary-first order: a replica's wait strategy blocks on its initial sync,
    * which cannot complete until the primary is accepting connections.
    */
-  private void startContainers(final int numReplicas) {
+  private void startContainers() {
     final int numContainers = 1 + numReplicas;
     for (int i = 0; i < numContainers; i++) {
       final boolean isPrimary = i == 0;
@@ -134,13 +155,12 @@ final class ValkeyCluster implements AutoCloseable {
     return containers.get(1 + index);
   }
 
-  private int numReplicas() {
-    return containers.size() - 1;
-  }
-
   /** A client whose reads and writes both land on the primary. */
-  GlideClient newPrimaryClient() throws Exception {
-    return newClient(ReadFrom.PRIMARY, primary());
+  GlideClient primaryClient() throws Exception {
+    if (primaryClient == null) {
+      primaryClient = newClient(ReadFrom.PRIMARY, primary());
+    }
+    return primaryClient;
   }
 
   /**
@@ -152,11 +172,15 @@ final class ValkeyCluster implements AutoCloseable {
    * it every address and asking for {@link ReadFrom#PREFER_REPLICA}: writes still go to the
    * primary, while reads -- INFO included -- are served by a replica.
    */
-  GlideClient newReplicaReadingClient() throws Exception {
-    if (numReplicas() == 0) {
-      throw new IllegalStateException("cluster was started without replicas");
+  GlideClient replicaReadingClient() throws Exception {
+    if (numReplicas == 0) {
+      throw new IllegalStateException("topology was started without replicas");
     }
-    return newClient(ReadFrom.PREFER_REPLICA, containers.toArray(new GenericContainer<?>[0]));
+    if (replicaReadingClient == null) {
+      replicaReadingClient =
+          newClient(ReadFrom.PREFER_REPLICA, containers.toArray(new GenericContainer<?>[0]));
+    }
+    return replicaReadingClient;
   }
 
   /** Builds a standalone client over the host-mapped addresses of the given containers. */
@@ -174,17 +198,21 @@ final class ValkeyCluster implements AutoCloseable {
         .reconnectStrategy(backoff)
         .build();
 
-    return get(GlideClient.createClient(config));
+    GlideClient client = get(GlideClient.createClient(config));
+    clients.add(client);
+    return client;
   }
 
   /**
-   * Clears the keyspace, so that a test observes only the keys it wrote itself rather than those
-   * of its predecessors in the same class. FLUSHALL replicates, so this clears the replicas too --
-   * but only once they have applied it, hence the barrier.
+   * Clears the keyspace, for a test that has to observe only the keys it wrote itself. Called by
+   * that test rather than before every one, so that the assertion depending on an empty keyspace
+   * sits next to the thing that empties it. FLUSHALL replicates, so this clears the replicas too
+   * -- but only once they have applied it, hence the barrier.
    */
   void flushKeyspace() throws Exception {
-    get(adminClient.flushall());
-    awaitReplication(adminClient);
+    GlideClient client = primaryClient();
+    get(client.flushall());
+    awaitReplication(client);
   }
 
   /**
@@ -198,13 +226,12 @@ final class ValkeyCluster implements AutoCloseable {
    * has no replicas of its own to wait for.
    */
   void awaitReplication(final GlideClient client) throws Exception {
-    final long expectedReplicas = numReplicas();
-    if (expectedReplicas == 0) {
+    if (numReplicas == 0) {
       return;
     }
-    assertThat(get(client.wait(expectedReplicas, REPLICATION_TIMEOUT.toMillis())))
+    assertThat(get(client.wait(numReplicas, REPLICATION_TIMEOUT.toMillis())))
         .as("replicas that acknowledged the write")
-        .isEqualTo(expectedReplicas);
+        .isEqualTo((long) numReplicas);
   }
 
   /**
@@ -224,20 +251,19 @@ final class ValkeyCluster implements AutoCloseable {
   }
 
   /**
-   * Stops every node and then the network they are attached to. Each node is stopped
-   * independently, and the network is closed either way: a leaked container or network outlives
-   * the JVM, so one that refuses to go away must not take the others down with it.
+   * Closes the clients, stops every node and then the network they are attached to. Each step is
+   * independent, and the network is closed either way: a leaked container or network outlives the
+   * JVM, so one that refuses to go away must not take the others down with it.
    */
-  @Override
-  public void close() {
-    try {
-      if (adminClient != null) {
-        adminClient.close();
+  private void close() {
+    for (GlideClient client : clients) {
+      try {
+        client.close();
+      } catch (Exception e) {
+        // GlideClient.close() is declared to throw: a client that will not close cleanly must not
+        // abort the container teardown below.
+        LOGGER.warn("failed to close a client", e);
       }
-    } catch (Exception e) {
-      // GlideClient.close() is declared to throw, but AutoCloseable.close() here is not: a client
-      // that will not close cleanly must not abort the container teardown below.
-      LOGGER.warn("failed to close the admin client", e);
     }
     try {
       // Replicas first, so that none is left reconnecting to a primary that is already gone.

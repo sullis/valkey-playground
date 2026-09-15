@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit;
 final class Futures {
   /**
    * Bounds a single command. Distinct from the container startup and replication barrier timeouts
-   * in {@link ValkeyCluster}: a command that never returns is a different failure from a node that
+   * in {@link ValkeyTopology}: a command that never returns is a different failure from a node that
    * never comes up.
    */
   private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(15);
