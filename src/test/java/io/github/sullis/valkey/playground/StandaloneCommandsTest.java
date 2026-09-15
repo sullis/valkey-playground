@@ -13,13 +13,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Single-node behaviour: server identity and plain key round-trips. */
 public class StandaloneCommandsTest {
-  // Nothing here observes replication, so a lone primary is the whole topology.
+  // Nothing here observes replication, so a lone primary is the whole fixture.
   @RegisterExtension
-  static final ValkeyTopology topology = ValkeyTopology.withReplicas(0);
+  static final ValkeyServers servers = ValkeyServers.withReplicas(0);
 
   @Test
   void serverIdentifiesItselfAsAValkeyPrimary() throws Exception {
-    GlideClient client = topology.primaryClient();
+    GlideClient client = servers.primaryClient();
 
     assertThat(get(client.ping("Hello world"))).isEqualTo("Hello world");
 
@@ -33,12 +33,12 @@ public class StandaloneCommandsTest {
 
   @Test
   void writesAreReadableBackAndVisibleToRandomkey() throws Exception {
-    GlideClient client = topology.primaryClient();
+    GlideClient client = servers.primaryClient();
     final String valuePrefix = "value-";
 
     // RANDOMKEY draws from the whole keyspace, so the assertion below is only meaningful if the
     // keys written here are the only ones there are.
-    topology.flushKeyspace();
+    servers.flushKeyspace();
 
     Set<String> keys = new HashSet<>();
     for (int i = 0; i < 5; i++) {

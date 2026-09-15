@@ -25,9 +25,9 @@ import static io.github.sullis.valkey.playground.Futures.get;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * A running Valkey topology -- one primary plus {@code numReplicas} replicas, each in its own
+ * A running set of Valkey servers -- one primary plus {@code numReplicas} replicas, each in its own
  * container on a private Docker network -- together with the clients, keyspace and exec plumbing
- * needed to drive it.
+ * needed to drive them.
  *
  * <p>This is replication, not cluster mode: replicas are attached with {@code --replicaof} and
  * every client here is a standalone {@link GlideClient}, so there are no hash slots and no
@@ -35,11 +35,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>A test class owns one of these as a static field annotated {@code @RegisterExtension}, which
  * leaves the lifecycle to JUnit: started once before the class and stopped after it, including
- * when the start itself fails partway. Starting a topology costs seconds, so it is shared across
- * the methods of a class rather than rebuilt per method.
+ * when the start itself fails partway. Starting the servers costs seconds, so they are shared
+ * across the methods of a class rather than rebuilt per method.
  */
-final class ValkeyTopology implements BeforeAllCallback, AfterAllCallback {
-  private static final Logger LOGGER = LoggerFactory.getLogger(ValkeyTopology.class);
+final class ValkeyServers implements BeforeAllCallback, AfterAllCallback {
+  private static final Logger LOGGER = LoggerFactory.getLogger(ValkeyServers.class);
   private static final DockerImageName IMAGE = DockerImageName.parse("valkey/valkey:9.1.2");
 
   /**
@@ -67,12 +67,12 @@ final class ValkeyTopology implements BeforeAllCallback, AfterAllCallback {
   /**
    * Populated as containers start rather than once they all have: a container registered here
    * before its {@code start()} is one {@link #close()} can still stop if a later container in the
-   * topology never comes up.
+   * set never comes up.
    */
   private final List<GenericContainer<?>> containers = new ArrayList<>();
 
   /**
-   * Clients are built on first use and kept for the life of the topology: each one costs a Glide
+   * Clients are built on first use and kept for the life of the servers: each one costs a Glide
    * native runtime and its connections, which is not worth paying per test method. Tracked here so
    * that {@link #close()} closes whichever ones a test class actually asked for.
    */
@@ -81,13 +81,13 @@ final class ValkeyTopology implements BeforeAllCallback, AfterAllCallback {
   private GlideClient primaryClient;
   private GlideClient replicaReadingClient;
 
-  private ValkeyTopology(final int numReplicas) {
+  private ValkeyServers(final int numReplicas) {
     this.numReplicas = numReplicas;
   }
 
-  /** Declares a topology; nothing starts until JUnit calls {@link #beforeAll}. */
-  static ValkeyTopology withReplicas(final int numReplicas) {
-    return new ValkeyTopology(numReplicas);
+  /** Declares the servers; nothing starts until JUnit calls {@link #beforeAll}. */
+  static ValkeyServers withReplicas(final int numReplicas) {
+    return new ValkeyServers(numReplicas);
   }
 
   @Override
@@ -174,7 +174,7 @@ final class ValkeyTopology implements BeforeAllCallback, AfterAllCallback {
    */
   GlideClient replicaReadingClient() throws Exception {
     if (numReplicas == 0) {
-      throw new IllegalStateException("topology was started without replicas");
+      throw new IllegalStateException("servers were started without replicas");
     }
     if (replicaReadingClient == null) {
       replicaReadingClient =
