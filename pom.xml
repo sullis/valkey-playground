@@ -65,10 +65,12 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <!-- The classifier-less artifact bundles the native library for every platform. The
+           per-platform classifiers are smaller, but a classifier-qualified dependency is invisible
+           to Dependabot, which is why this stayed on 1.2.0 for over a year. -->
       <groupId>io.valkey</groupId>
       <artifactId>valkey-glide</artifactId>
-      <version>1.2.0</version>
-      <classifier>${os.detected.classifier}</classifier>
+      <version>2.5.2</version>
     </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
@@ -130,13 +132,6 @@
   </dependencies>
 
   <build>
-    <extensions>
-      <extension>
-        <groupId>kr.motd.maven</groupId>
-        <artifactId>os-maven-plugin</artifactId>
-        <version>1.7.1</version>
-      </extension>
-    </extensions>
     <plugins>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
