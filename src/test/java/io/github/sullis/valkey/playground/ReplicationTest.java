@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Primary/replica behaviour: how each node reports the link, and what a replica will accept. */
 public class ReplicationTest {
   @RegisterExtension
-  static final ValkeyTopology topology = ValkeyTopology.withReplicas(1);
+  static final ValkeyServers servers = ValkeyServers.withReplicas(1);
 
   private static String replicationInfo(final GlideClient client) throws Exception {
     return get(client.info(new Section[]{Section.REPLICATION}));
@@ -20,12 +20,12 @@ public class ReplicationTest {
 
   @Test
   void bothNodesReportTheReplicationLinkAsUp() throws Exception {
-    assertThat(replicationInfo(topology.primaryClient()))
+    assertThat(replicationInfo(servers.primaryClient()))
         .contains("role:master")
         .contains("connected_slaves:1")
         .containsPattern("slave0:ip=.*,state=online");
 
-    GlideClient replicaClient = topology.replicaReadingClient();
+    GlideClient replicaClient = servers.replicaReadingClient();
 
     // Reads on replicaClient land on the replica, so this is the replica's own view.
     assertThat(replicationInfo(replicaClient))
@@ -39,7 +39,7 @@ public class ReplicationTest {
 
   @Test
   void aWriteOnThePrimaryIsReadableFromTheReplica() throws Exception {
-    GlideClient primaryClient = topology.primaryClient();
+    GlideClient primaryClient = servers.primaryClient();
     String key = UUID.randomUUID().toString();
     String value = "replicated-" + key;
     get(primaryClient.set(key, value));
@@ -47,19 +47,19 @@ public class ReplicationTest {
     // Replication is asynchronous, so wait for the replica to acknowledge the write before
     // reading it back. Reads on replicaReadingClient land on the replica, so this asserts that
     // the value replicated rather than that the primary still has it.
-    topology.awaitReplication(primaryClient);
-    assertThat(get(topology.replicaReadingClient().get(key))).isEqualTo(value);
+    servers.awaitReplication(primaryClient);
+    assertThat(get(servers.replicaReadingClient().get(key))).isEqualTo(value);
   }
 
   @Test
   void theReplicaRejectsWrites() throws Exception {
     String key = UUID.randomUUID().toString();
 
-    assertThat(topology.valkeyCli(topology.replica(0), "set", key, "nope"))
+    assertThat(servers.valkeyCli(servers.replica(0), "set", key, "nope"))
         .contains("READONLY");
 
     // The rejection has to mean the write did not happen: a replica that accepted it locally
     // would diverge from the primary rather than report an error.
-    assertThat(topology.valkeyCli(topology.replica(0), "exists", key).trim()).isEqualTo("0");
+    assertThat(servers.valkeyCli(servers.replica(0), "exists", key).trim()).isEqualTo("0");
   }
 }
