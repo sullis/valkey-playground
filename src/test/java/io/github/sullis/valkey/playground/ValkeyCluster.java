@@ -22,7 +22,6 @@ import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
 
 import static glide.api.models.configuration.RequestRoutingConfiguration.SimpleMultiNodeRoute.ALL_PRIMARIES;
 import static io.github.sullis.valkey.playground.Futures.get;
@@ -56,7 +55,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
   private static final Logger LOGGER = LoggerFactory.getLogger(ValkeyCluster.class);
-  private static final DockerImageName IMAGE = DockerImageName.parse("valkey/valkey:9.1.2");
 
   /**
    * The address every node announces, and the one the client connects to. Loopback is the only
@@ -137,7 +135,7 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
   }
 
   private void startContainer() {
-    container = new GenericContainer<>(IMAGE)
+    container = new GenericContainer<>(ValkeyImage.VALKEY)
         .withExposedPorts(ports.toArray(new Integer[0]))
         // Publish each port to the identical host port, which withExposedPorts alone will not do.
         .withCreateContainerCmdModifier(cmd -> {
