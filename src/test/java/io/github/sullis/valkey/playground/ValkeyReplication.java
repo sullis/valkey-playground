@@ -11,6 +11,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -280,7 +282,7 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
    * <p>Handed every node's address, for the reason {@link #replicaReadingClient} is: a standalone
    * client resolves its primary from the address list and rejects one that holds only replicas.
    */
-  GlideClient azAwareClient(final ReadFrom readFrom, final String clientAz) throws Exception {
+  GlideClient azAwareClient(final ReadFrom readFrom, final @Nullable String clientAz) throws Exception {
     if (availabilityZones.isEmpty()) {
       throw new IllegalStateException("servers were started without availability zones");
     }
@@ -300,7 +302,7 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
    * {@code clientAz} of null leaves the client in no zone, which is the only sensible thing for a
    * strategy that does not read one.
    */
-  private GlideClient newClient(final ReadFrom readFrom, final String clientAz,
+  private GlideClient newClient(final ReadFrom readFrom, final @Nullable String clientAz,
       final GenericContainer<?>... targets) throws Exception {
     List<NodeAddress> addresses = Arrays.stream(targets)
         .map(c -> NodeAddress.builder().host(c.getHost()).port(c.getFirstMappedPort()).build())
