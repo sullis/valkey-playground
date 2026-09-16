@@ -37,8 +37,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * replication stream. What this one adds is hash slots, {@code CLUSTER} membership, and
  * per-command routing.
  *
- * <p>A test class owns one of these as a static field annotated {@code @RegisterExtension}, which
- * leaves the lifecycle to JUnit, exactly as {@link ValkeyReplication} does.
+ * <p>A test class that wants one version owns one of these as a static field annotated
+ * {@code @RegisterExtension}, which leaves the lifecycle to JUnit. A class parameterized over
+ * versions calls {@link #start()} and {@link #close()} from its own invocation hooks instead,
+ * because a static extension field is set up once, before any parameter exists. Both shapes work
+ * the same way for {@link ValkeyReplication}.
  *
  * <h2>Why every node lives in one container</h2>
  *
@@ -100,6 +103,12 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
    */
   private GlideClusterClient client;
 
+  /**
+   * Set by the first {@link #close()}, so that a second one is a no-op. A start that fails partway
+   * closes what it built and then still meets its caller's own teardown.
+   */
+  private boolean closed;
+
   private ValkeyCluster(final DockerImageName image, final int numShards) {
     if (numShards < 3) {
       // Valkey itself refuses to form a cluster with fewer than three primaries. Checked here
@@ -137,13 +146,23 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
 
   @Override
   public void beforeAll(final ExtensionContext context) throws Exception {
+    start();
+  }
+
+  /**
+   * Starts the nodes and forms the cluster, for a caller that drives the lifecycle itself rather
+   * than through {@code @RegisterExtension} -- see the class comment. A start that fails partway
+   * tears down whatever did come up before it throws.
+   */
+  void start() throws Exception {
     try {
       startContainer();
       formCluster();
       awaitClusterState();
     } catch (Exception | AssertionError e) {
-      // JUnit does not call afterAll for a failed beforeAll, so a container that did come up has
-      // to be torn down here rather than left running.
+      // A failed start has no matching teardown call -- JUnit does not run afterAll for a failed
+      // beforeAll -- so a container that did come up has to be stopped here rather than left
+      // running.
       close();
       throw e;
     }
@@ -170,7 +189,9 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
         .waitingFor(Wait.forLogMessage(".*Ready to accept connections.*\\n", numShards))
         .withStartupTimeout(STARTUP_TIMEOUT);
     container.start();
-    LOGGER.info("started container id={} ports={}", container.getContainerId(), ports);
+    // The image is logged because a class parameterized over versions runs this once per
+    // version, and surefire labels the invocations [1] and [2] rather than by image.
+    LOGGER.info("started container id={} ports={} image={}", container.getContainerId(), ports, image);
   }
 
   /** Starts one {@code valkey-server} per shard in the background and keeps PID 1 alive. */
@@ -322,8 +343,15 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
   /**
    * Closes the client and stops the container. Each step is independent: a leaked container
    * outlives the JVM, so a client that refuses to close must not take the teardown down with it.
+   *
+   * <p>Safe to call on a cluster that never started, and safe to call twice, so a caller driving
+   * the lifecycle itself can tear down unconditionally.
    */
-  private void close() {
+  void close() {
+    if (closed) {
+      return;
+    }
+    closed = true;
     if (client != null) {
       try {
         client.close();

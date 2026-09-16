@@ -3,20 +3,65 @@ package io.github.sullis.valkey.playground;
 import glide.api.GlideClusterClient;
 import glide.api.models.ClusterValue;
 import glide.api.models.configuration.RequestRoutingConfiguration.ByAddressRoute;
+import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.AfterParameterizedClassInvocation;
+import org.junit.jupiter.params.BeforeParameterizedClassInvocation;
+import org.junit.jupiter.params.Parameter;
+import org.junit.jupiter.params.ParameterizedClass;
+import org.junit.jupiter.params.provider.FieldSource;
+import org.testcontainers.utility.DockerImageName;
 
 import static glide.api.models.configuration.RequestRoutingConfiguration.SimpleMultiNodeRoute.ALL_NODES;
 import static glide.api.models.configuration.RequestRoutingConfiguration.SimpleMultiNodeRoute.ALL_PRIMARIES;
 import static io.github.sullis.valkey.playground.Futures.get;
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Cluster-mode behaviour: how a client finds the nodes, and where a key ends up. */
+/**
+ * Cluster-mode behaviour: how a client finds the nodes, and where a key ends up. Run once per
+ * supported Valkey major, for the same reason {@link ReplicationTest} is: the {@code CLUSTER INFO}
+ * field names and the slot split asserted on below are a protocol surface, and a major release is
+ * where one would change.
+ *
+ * <p>Parameterized over the class rather than per test method: a {@code @ParameterizedTest} would
+ * form a fresh three-node cluster for every method, and forming one costs seconds. The servers
+ * cannot be a static {@code @RegisterExtension} field either -- a static extension field is set
+ * up once, before any invocation and so before any image -- which is why the two hooks below drive
+ * the lifecycle.
+ */
+@ParameterizedClass(name = "{0}")
+@FieldSource("IMAGES")
 public class ClusterTest {
   private static final int NUM_SHARDS = 3;
 
-  @RegisterExtension
-  static final ValkeyCluster cluster = ValkeyCluster.withShards(NUM_SHARDS);
+  static final List<DockerImageName> IMAGES = ValkeyImage.SUPPORTED_MAJORS;
+
+  /**
+   * The image this invocation runs. Declaring it is what makes the class parameterized at all --
+   * without a constructor parameter or a {@code @Parameter} field, JUnit does not consider the
+   * class to take an argument and refuses to inject one into the hooks below.
+   */
+  @Parameter
+  DockerImageName image;
+
+  private static ValkeyCluster cluster;
+
+  @BeforeParameterizedClassInvocation
+  static void startCluster(final DockerImageName image) throws Exception {
+    cluster = ValkeyCluster.withImage(image, NUM_SHARDS);
+    cluster.start();
+  }
+
+  @AfterParameterizedClassInvocation(injectArguments = false)
+  static void stopCluster() {
+    // Runs even when startCluster threw, which is why this tolerates a cluster that was never
+    // assigned; one that was assigned and then failed partway has closed itself already, and
+    // ValkeyCluster.close() is a no-op the second time.
+    if (cluster != null) {
+      cluster.close();
+      cluster = null;
+    }
+  }
 
   /**
    * A key's slot is a property of the key alone -- CRC16(key) % 16384 -- and {@code --cluster
@@ -32,6 +77,22 @@ public class ClusterTest {
 
   private static final String SHARD_2_KEY = "echo";
   private static final int SHARD_2_SLOT = 14438; // of 10923-16383
+
+  /**
+   * That the nodes really are the version this invocation asked for. Without this the matrix looks
+   * like it covers two majors whether or not it does: a tag that has moved, or one image silently
+   * pulled for the other, would leave every assertion below passing twice on one version.
+   */
+  @Test
+  void theNodesRunTheVersionUnderTest() throws Exception {
+    String version = image.getVersionPart();
+
+    for (int index = 0; index < NUM_SHARDS; index++) {
+      assertThat(cluster.valkeyCli(index, "info", "server"))
+          .as("INFO SERVER from node %d", index)
+          .contains("valkey_version:" + version);
+    }
+  }
 
   @Test
   void clientDiscoversEveryNodeFromASingleSeedAddress() throws Exception {

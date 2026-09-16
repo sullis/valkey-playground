@@ -33,10 +33,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * every client here is a standalone {@link GlideClient}, so there are no hash slots and no
  * {@code CLUSTER} membership involved.
  *
- * <p>A test class owns one of these as a static field annotated {@code @RegisterExtension}, which
- * leaves the lifecycle to JUnit: started once before the class and stopped after it, including
- * when the start itself fails partway. Starting the servers costs seconds, so they are shared
- * across the methods of a class rather than rebuilt per method.
+ * <p>A test class that wants one version owns one of these as a static field annotated
+ * {@code @RegisterExtension}, which leaves the lifecycle to JUnit: started once before the class
+ * and stopped after it, including when the start itself fails partway. A class parameterized over
+ * versions cannot use that -- a static extension field is set up once, before any parameter
+ * exists -- so it calls {@link #start()} and {@link #close()} from its own
+ * {@code @BeforeParameterizedClassInvocation} hooks instead. Either way the servers start once per
+ * set of test methods rather than per method, because starting them costs seconds.
  */
 final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
   private static final Logger LOGGER = LoggerFactory.getLogger(ValkeyReplication.class);
@@ -82,6 +85,13 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
   private GlideClient primaryClient;
   private GlideClient replicaReadingClient;
 
+  /**
+   * Set by the first {@link #close()}, so that a second one is a no-op. A start that fails partway
+   * closes what it built and then still meets its caller's own teardown, and closing the network
+   * twice would throw.
+   */
+  private boolean closed;
+
   private ValkeyReplication(final DockerImageName image, final int numReplicas) {
     this.image = image;
     this.numReplicas = numReplicas;
@@ -112,11 +122,21 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
 
   @Override
   public void beforeAll(final ExtensionContext context) {
+    start();
+  }
+
+  /**
+   * Starts the servers, for a caller that drives the lifecycle itself rather than through
+   * {@code @RegisterExtension} -- see the class comment. A start that fails partway tears down
+   * whatever did come up before it throws, so the caller owes it no cleanup it is not already
+   * doing.
+   */
+  void start() {
     try {
       startContainers();
     } catch (RuntimeException e) {
-      // JUnit does not call afterAll for a failed beforeAll, so whatever did come up has to be
-      // torn down here rather than left running.
+      // A failed start has no matching teardown call -- JUnit does not run afterAll for a failed
+      // beforeAll -- so whatever did come up has to be stopped here rather than left running.
       close();
       throw e;
     }
@@ -163,7 +183,9 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
       container = container.withCommand(command.toArray(new String[0]));
       containers.add(container);
       container.start();
-      LOGGER.info("started container id={} role={}", container.getContainerId(), role);
+      // The image is logged because a class parameterized over versions runs this twice, and
+      // surefire labels the two invocations [1] and [2] rather than by image.
+      LOGGER.info("started container id={} role={} image={}", container.getContainerId(), role, image);
     }
   }
 
@@ -274,8 +296,15 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
    * Closes the clients, stops every node and then the network they are attached to. Each step is
    * independent, and the network is closed either way: a leaked container or network outlives the
    * JVM, so one that refuses to go away must not take the others down with it.
+   *
+   * <p>Safe to call on a set that never started, and safe to call twice, so a caller driving the
+   * lifecycle itself can tear down unconditionally.
    */
-  private void close() {
+  void close() {
+    if (closed) {
+      return;
+    }
+    closed = true;
     for (GlideClient client : clients) {
       try {
         client.close();
