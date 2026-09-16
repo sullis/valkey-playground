@@ -19,6 +19,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.utility.DockerImageName;
 
 import static io.github.sullis.valkey.playground.Futures.get;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,6 +59,8 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
   /** Bounds {@link #awaitReplication}, which fails as a short acknowledgement count. */
   private static final Duration REPLICATION_TIMEOUT = Duration.ofSeconds(15);
 
+  private final DockerImageName image;
+
   private final int numReplicas;
 
   private final Network network = Network.newNetwork();
@@ -79,13 +82,32 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
   private GlideClient primaryClient;
   private GlideClient replicaReadingClient;
 
-  private ValkeyReplication(final int numReplicas) {
+  private ValkeyReplication(final DockerImageName image, final int numReplicas) {
+    this.image = image;
     this.numReplicas = numReplicas;
   }
 
-  /** Declares the servers; nothing starts until JUnit calls {@link #beforeAll}. */
+  /**
+   * Declares the servers on the image every fixture shares; nothing starts until JUnit calls
+   * {@link #beforeAll}.
+   */
   static ValkeyReplication withReplicas(final int numReplicas) {
-    return new ValkeyReplication(numReplicas);
+    return new ValkeyReplication(ValkeyImage.DEFAULT_VALKEY_IMAGE, numReplicas);
+  }
+
+  /**
+   * As {@link #withReplicas}, but on a caller-supplied image -- for a test about one Valkey
+   * version in particular, or a run pointed at a mirror of the upstream image.
+   *
+   * <p>It has to be a Valkey image or a rebuild of one, not a Redis image: the nodes are started
+   * by running {@code valkey-server} by name and {@link #valkeyCli} shells out to
+   * {@code valkey-cli}, neither of which a Redis image ships. Both wait strategies in
+   * {@link #startContainers} also match on Valkey's own log text rather than on a port being
+   * open, so an image that logs something else surfaces as a startup timeout rather than as a
+   * clear error.
+   */
+  static ValkeyReplication withImage(final DockerImageName image, final int numReplicas) {
+    return new ValkeyReplication(image, numReplicas);
   }
 
   @Override
@@ -122,7 +144,7 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
           "--repl-diskless-sync-delay", "0",
           // Nothing here reads persisted data, so skip RDB snapshotting entirely.
           "--save", ""));
-      GenericContainer<?> container = new GenericContainer<>(ValkeyImage.VALKEY)
+      GenericContainer<?> container = new GenericContainer<>(image)
           .withNetwork(network)
           .withExposedPorts(VALKEY_PORT)
           .withLogConsumer(new Slf4jLogConsumer(LOGGER).withPrefix(role))

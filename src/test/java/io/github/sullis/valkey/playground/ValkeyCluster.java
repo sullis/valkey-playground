@@ -22,6 +22,7 @@ import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.utility.DockerImageName;
 
 import static glide.api.models.configuration.RequestRoutingConfiguration.SimpleMultiNodeRoute.ALL_PRIMARIES;
 import static io.github.sullis.valkey.playground.Futures.get;
@@ -81,6 +82,8 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
   /** Bounds {@link #awaitClusterState}, which fails as a node still reporting a non-ok state. */
   private static final Duration CLUSTER_READY_TIMEOUT = Duration.ofSeconds(30);
 
+  private final DockerImageName image;
+
   private final int numShards;
 
   private final List<Integer> ports;
@@ -97,22 +100,39 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
    */
   private GlideClusterClient client;
 
-  private ValkeyCluster(final int numShards) {
+  private ValkeyCluster(final DockerImageName image, final int numShards) {
+    if (numShards < 3) {
+      // Valkey itself refuses to form a cluster with fewer than three primaries. Checked here
+      // rather than in one factory, so that every way of building a cluster is held to it.
+      throw new IllegalArgumentException("a cluster needs at least 3 shards, got " + numShards);
+    }
+    this.image = image;
     this.numShards = numShards;
     this.ports = reservePorts(numShards);
   }
 
   /**
-   * Declares a cluster of {@code numShards} primaries and no replicas; nothing starts until JUnit
-   * calls {@link #beforeAll}. Three is the smallest shard count that says anything about slot
-   * ownership.
+   * Declares a cluster of {@code numShards} primaries and no replicas, on the image every fixture
+   * shares; nothing starts until JUnit calls {@link #beforeAll}. Three is the smallest shard count
+   * that says anything about slot ownership.
    */
   static ValkeyCluster withShards(final int numShards) {
-    if (numShards < 3) {
-      // Valkey itself refuses to form a cluster with fewer than three primaries.
-      throw new IllegalArgumentException("a cluster needs at least 3 shards, got " + numShards);
-    }
-    return new ValkeyCluster(numShards);
+    return new ValkeyCluster(ValkeyImage.DEFAULT_VALKEY_IMAGE, numShards);
+  }
+
+  /**
+   * As {@link #withShards}, but on a caller-supplied image -- for a test about one Valkey version
+   * in particular, or a run pointed at a mirror of the upstream image.
+   *
+   * <p>It has to be a Valkey image or a rebuild of one, not a Redis image: {@link #serverCommand}
+   * runs {@code valkey-server} by name and both {@link #formCluster} and {@link #valkeyCli} shell
+   * out to {@code valkey-cli}, neither of which a Redis image ships. The wait strategy in
+   * {@link #startContainer} also matches on Valkey's own readiness line rather than on a port
+   * being open, so an image that logs something else surfaces as a startup timeout rather than as
+   * a clear error.
+   */
+  static ValkeyCluster withImage(final DockerImageName image, final int numShards) {
+    return new ValkeyCluster(image, numShards);
   }
 
   @Override
@@ -135,7 +155,7 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
   }
 
   private void startContainer() {
-    container = new GenericContainer<>(ValkeyImage.VALKEY)
+    container = new GenericContainer<>(image)
         .withExposedPorts(ports.toArray(new Integer[0]))
         // Publish each port to the identical host port, which withExposedPorts alone will not do.
         .withCreateContainerCmdModifier(cmd -> {
