@@ -40,10 +40,15 @@ Because surefire forks, the agent writes one execution file per fork to `target/
 folds into `target/jacoco.exec` before the report runs. Eight JVMs appending to a single shared
 file would race.
 
-A `check` execution then fails the build under **90% instruction coverage** over the bundle
+A `check` execution then fails the build under **94% instruction coverage** over the bundle
 (`jacoco.minimum.coverage` in the pom). Instructions rather than branches: fixture branch coverage
 is mostly error paths a passing run never takes. One bundle-wide rule rather than a per-class one,
 so that a small fixture with an uncovered branch or two need not clear the same bar as the tree.
+
+There is little room left above that floor, and the remainder is not a to-do list. What the suite
+does not reach is the fixtures' own failure handling — the port search giving up, and the `catch`
+blocks in `start()` and `close()` that log and carry on — and reaching those means making a
+container or a client fail on demand, which tests a mock rather than anything Valkey does.
 
 The floor applies to the fixtures as a whole, so a run narrowed to one class will trip it —
 fixture coverage is not a meaningful number when surefire only ran `ClusterTest`. Add
