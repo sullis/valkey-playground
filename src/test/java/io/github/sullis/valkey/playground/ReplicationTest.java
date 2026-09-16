@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Primary/replica behaviour: how each node reports the link, and what a replica will accept. */
 public class ReplicationTest {
   @RegisterExtension
-  static final ValkeyServers servers = ValkeyServers.withReplicas(1);
+  static final ValkeyReplication servers = ValkeyReplication.withReplicas(1);
 
   private static String replicationInfo(final GlideClient client) throws Exception {
     return get(client.info(new Section[]{Section.REPLICATION}));

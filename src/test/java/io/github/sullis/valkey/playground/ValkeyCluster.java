@@ -33,17 +33,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * slots -- together with a {@link GlideClusterClient} that reaches it.
  *
  * <p>This is cluster mode, not replication: there is no {@code --replicaof} link and no single
- * primary, so the sibling {@link ValkeyServers} is the fixture for anything about the replication
- * stream. What this one adds is hash slots, {@code CLUSTER} membership, and per-command routing.
+ * primary, so the sibling {@link ValkeyReplication} is the fixture for anything about the
+ * replication stream. What this one adds is hash slots, {@code CLUSTER} membership, and
+ * per-command routing.
  *
  * <p>A test class owns one of these as a static field annotated {@code @RegisterExtension}, which
- * leaves the lifecycle to JUnit, exactly as {@link ValkeyServers} does.
+ * leaves the lifecycle to JUnit, exactly as {@link ValkeyReplication} does.
  *
  * <h2>Why every node lives in one container</h2>
  *
  * <p>A cluster client is given seed addresses but then connects to the addresses the cluster
  * <em>advertises</em>, so those have to be reachable from wherever the client runs. That rules out
- * the container-per-node shape {@link ValkeyServers} uses: nodes would advertise their private
+ * the container-per-node shape {@link ValkeyReplication} uses: nodes would advertise their private
  * Docker addresses, which a test JVM on the host cannot reach at all under Docker Desktop.
  *
  * <p>{@code --cluster-announce-ip} does not rescue that shape either, because an announced address

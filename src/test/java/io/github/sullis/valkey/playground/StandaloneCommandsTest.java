@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class StandaloneCommandsTest {
   // Nothing here observes replication, so a lone primary is the whole fixture.
   @RegisterExtension
-  static final ValkeyServers servers = ValkeyServers.withReplicas(0);
+  static final ValkeyReplication servers = ValkeyReplication.withReplicas(0);
 
   @Test
   void serverIdentifiesItselfAsAValkeyPrimary() throws Exception {

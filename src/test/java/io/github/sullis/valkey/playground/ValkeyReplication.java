@@ -38,8 +38,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * when the start itself fails partway. Starting the servers costs seconds, so they are shared
  * across the methods of a class rather than rebuilt per method.
  */
-final class ValkeyServers implements BeforeAllCallback, AfterAllCallback {
-  private static final Logger LOGGER = LoggerFactory.getLogger(ValkeyServers.class);
+final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
+  private static final Logger LOGGER = LoggerFactory.getLogger(ValkeyReplication.class);
   private static final DockerImageName IMAGE = DockerImageName.parse("valkey/valkey:9.1.2");
 
   /**
@@ -81,13 +81,13 @@ final class ValkeyServers implements BeforeAllCallback, AfterAllCallback {
   private GlideClient primaryClient;
   private GlideClient replicaReadingClient;
 
-  private ValkeyServers(final int numReplicas) {
+  private ValkeyReplication(final int numReplicas) {
     this.numReplicas = numReplicas;
   }
 
   /** Declares the servers; nothing starts until JUnit calls {@link #beforeAll}. */
-  static ValkeyServers withReplicas(final int numReplicas) {
-    return new ValkeyServers(numReplicas);
+  static ValkeyReplication withReplicas(final int numReplicas) {
+    return new ValkeyReplication(numReplicas);
   }
 
   @Override
