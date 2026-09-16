@@ -7,8 +7,8 @@ servers. Each test starts Valkey in Docker via [Testcontainers](https://testcont
 talks to it with [valkey-glide](https://github.com/valkey-io/valkey-glide), so an assertion here is
 a statement about what a server actually does rather than about what the docs say it does.
 
-There is no library to depend on and nothing to publish — the whole project lives under
-`src/test/java`.
+There is no library to depend on and nothing to publish. The Testcontainers fixtures live under
+`src/main/java` and the tests that drive them under `src/test/java`.
 
 ## Requirements
 
@@ -31,25 +31,22 @@ Valkey version.
 ## Code coverage
 
 A `mvn test` run writes a JaCoCo report to `target/site/jacoco/index.html`. What it measures is the
-fixtures: there is no `src/main/java` here, so the only code a report can cover is the one under
-`src/test/java`, and the pom points the build's output directory and source directory at that tree
-to make it visible to JaCoCo, whose report goal reads those and takes no class directory of its
-own. Read it as "which fixture paths does the suite actually exercise" rather than as a quality
-bar — a fixture method no test calls shows up here as an uncovered one.
+fixtures under `src/main/java`, which is the only tree JaCoCo's report goal reads. Take it as
+"which fixture paths does the suite actually exercise" rather than as a quality bar — a fixture
+method no test calls shows up here as an uncovered one.
 
 Because surefire forks, the agent writes one execution file per fork to `target/jacoco/`
 (`${surefire.forkNumber}` in the agent's `argLine`, expanded per fork), which a `merge` execution
 folds into `target/jacoco.exec` before the report runs. Eight JVMs appending to a single shared
 file would race.
 
-A `check` execution then fails the build under **95% instruction coverage** over the bundle
-(`jacoco.minimum.coverage` in the pom). Instructions rather than branches, and one bundle-wide
-rule rather than a per-class one: the test classes are covered by definition, so both of the
-other choices would amount to a floor on the fixtures alone, and fixture branch coverage is
-mostly error paths that a passing run never takes.
+A `check` execution then fails the build under **90% instruction coverage** over the bundle
+(`jacoco.minimum.coverage` in the pom). Instructions rather than branches: fixture branch coverage
+is mostly error paths a passing run never takes. One bundle-wide rule rather than a per-class one,
+so that a small fixture with an uncovered branch or two need not clear the same bar as the tree.
 
-The floor applies to the whole tree, so a run narrowed to one class will trip it — coverage of
-everything is not a meaningful number when surefire only ran `ClusterTest`. Add
+The floor applies to the fixtures as a whole, so a run narrowed to one class will trip it —
+fixture coverage is not a meaningful number when surefire only ran `ClusterTest`. Add
 `-Djacoco.check.skip=true` to those runs:
 
 ```sh
