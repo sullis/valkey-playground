@@ -19,7 +19,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
 
 import static io.github.sullis.valkey.playground.Futures.get;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,7 +39,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
   private static final Logger LOGGER = LoggerFactory.getLogger(ValkeyReplication.class);
-  private static final DockerImageName IMAGE = DockerImageName.parse("valkey/valkey:9.1.2");
 
   /**
    * Network alias for the primary. A replica must reach the primary over the Docker network,
@@ -124,7 +122,7 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
           "--repl-diskless-sync-delay", "0",
           // Nothing here reads persisted data, so skip RDB snapshotting entirely.
           "--save", ""));
-      GenericContainer<?> container = new GenericContainer<>(IMAGE)
+      GenericContainer<?> container = new GenericContainer<>(ValkeyImage.VALKEY)
           .withNetwork(network)
           .withExposedPorts(VALKEY_PORT)
           .withLogConsumer(new Slf4jLogConsumer(LOGGER).withPrefix(role))
