@@ -22,8 +22,14 @@
     <!-- The bundle-wide instruction coverage the jacoco check execution enforces. The bundle is
          the fixtures under src/main/java and nothing else, so this is a floor on how much of them
          the suite exercises; the suite sits a little above it. It was 0.95 while the test classes
-         were in the bundle too, inflating the ratio with code that is covered by definition. -->
-    <jacoco.minimum.coverage>0.90</jacoco.minimum.coverage>
+         were in the bundle too, inflating the ratio with code that is covered by definition.
+
+         There is not much room left above this one. What the suite does not reach is the fixtures'
+         own failure handling: the port search giving up, and the catch blocks in start() and
+         close() that log and carry on. Reaching those means making a container or a client fail on
+         demand, which is a mock rather than a test of anything Valkey does. So treat a drop below
+         this as real, but do not read the remainder as work to be done. -->
+    <jacoco.minimum.coverage>0.94</jacoco.minimum.coverage>
     <!-- An escape hatch for a partial run: fixture coverage is not a meaningful number when
          surefire was pointed at one class, so -Dtest=Foo wants this set too. -->
     <jacoco.check.skip>false</jacoco.check.skip>
