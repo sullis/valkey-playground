@@ -8,7 +8,9 @@ import glide.api.models.configuration.ReadFrom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -66,6 +68,13 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
 
   private final int numReplicas;
 
+  /**
+   * One availability zone per node, primary first, or empty for nodes started without the
+   * {@code availability-zone} setting at all. A node that reports no zone is in no zone as far as
+   * a client is concerned, which is why the zones are fixed here at startup rather than set later.
+   */
+  private final List<String> availabilityZones;
+
   private final Network network = Network.newNetwork();
 
   /**
@@ -86,15 +95,24 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
   private GlideClient replicaReadingClient;
 
   /**
+   * AZ-aware clients, keyed by the strategy and client zone they were built for, so that a test
+   * method asking for the same pair twice does not pay for a second native runtime. Also held in
+   * {@link #clients}, which is what closes them.
+   */
+  private final Map<String, GlideClient> azClients = new HashMap<>();
+
+  /**
    * Set by the first {@link #close()}, so that a second one is a no-op. A start that fails partway
    * closes what it built and then still meets its caller's own teardown, and closing the network
    * twice would throw.
    */
   private boolean closed;
 
-  private ValkeyReplication(final DockerImageName image, final int numReplicas) {
+  private ValkeyReplication(final DockerImageName image, final int numReplicas,
+      final List<String> availabilityZones) {
     this.image = image;
     this.numReplicas = numReplicas;
+    this.availabilityZones = availabilityZones;
   }
 
   /**
@@ -102,7 +120,7 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
    * {@link #beforeAll}.
    */
   static ValkeyReplication withReplicas(final int numReplicas) {
-    return new ValkeyReplication(ValkeyImage.DEFAULT_VALKEY_IMAGE, numReplicas);
+    return new ValkeyReplication(ValkeyImage.DEFAULT_VALKEY_IMAGE, numReplicas, List.of());
   }
 
   /**
@@ -117,7 +135,30 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
    * clear error.
    */
   static ValkeyReplication withImage(final DockerImageName image, final int numReplicas) {
-    return new ValkeyReplication(image, numReplicas);
+    return new ValkeyReplication(image, numReplicas, List.of());
+  }
+
+  /**
+   * Declares one node per entry of {@code availabilityZones} -- the first is the primary's zone,
+   * each one after it a replica's -- with every node started as if it ran in that zone. For a test
+   * about an AZ-aware read strategy: GLIDE learns a node's zone by asking the node for its own
+   * {@code availability-zone} setting, so a node started without one can never be matched by
+   * affinity, and two nodes can be put in one zone by repeating it.
+   *
+   * <p>The zones are labels, not a claim about where anything runs -- every container here is on
+   * one host. That is not a weakness of the fixture: a zone is only ever what the node reports and
+   * what the client was told to prefer, so routing by it is exactly as testable on one host as it
+   * would be across three real zones.
+   *
+   * <p>Requires a server that has the setting at all, which means Valkey 8.0 or newer.
+   */
+  static ValkeyReplication withAvailabilityZones(final List<String> availabilityZones) {
+    if (availabilityZones.isEmpty()) {
+      // The first zone is the primary's, and there is always a primary.
+      throw new IllegalArgumentException("at least one zone is needed, for the primary");
+    }
+    return new ValkeyReplication(ValkeyImage.DEFAULT_VALKEY_IMAGE,
+        availabilityZones.size() - 1, List.copyOf(availabilityZones));
   }
 
   @Override
@@ -164,6 +205,12 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
           "--repl-diskless-sync-delay", "0",
           // Nothing here reads persisted data, so skip RDB snapshotting entirely.
           "--save", ""));
+      if (!availabilityZones.isEmpty()) {
+        // The zone the node reports to anyone who asks -- INFO SERVER, CONFIG GET, and the
+        // CONFIG GET that GLIDE itself issues per connection to decide where an AZ-affinity read
+        // may go.
+        command.addAll(List.of("--availability-zone", availabilityZones.get(i)));
+      }
       GenericContainer<?> container = new GenericContainer<>(image)
           .withNetwork(network)
           .withExposedPorts(VALKEY_PORT)
@@ -200,7 +247,7 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
   /** A client whose reads and writes both land on the primary. */
   GlideClient primaryClient() throws Exception {
     if (primaryClient == null) {
-      primaryClient = newClient(ReadFrom.PRIMARY, primary());
+      primaryClient = newClient(ReadFrom.PRIMARY, null, primary());
     }
     return primaryClient;
   }
@@ -220,23 +267,53 @@ final class ValkeyReplication implements BeforeAllCallback, AfterAllCallback {
     }
     if (replicaReadingClient == null) {
       replicaReadingClient =
-          newClient(ReadFrom.PREFER_REPLICA, containers.toArray(new GenericContainer<?>[0]));
+          newClient(ReadFrom.PREFER_REPLICA, null, containers.toArray(new GenericContainer<?>[0]));
     }
     return replicaReadingClient;
   }
 
-  /** Builds a standalone client over the host-mapped addresses of the given containers. */
-  private GlideClient newClient(final ReadFrom readFrom, final GenericContainer<?>... targets)
-      throws Exception {
+  /**
+   * A client that routes its reads by availability zone: {@code clientAz} is the zone the client
+   * claims to be in, and {@code readFrom} decides what "near" means -- see {@link ReadFrom} for
+   * each strategy's fallback order. Writes still go to the primary wherever it is.
+   *
+   * <p>Handed every node's address, for the reason {@link #replicaReadingClient} is: a standalone
+   * client resolves its primary from the address list and rejects one that holds only replicas.
+   */
+  GlideClient azAwareClient(final ReadFrom readFrom, final String clientAz) throws Exception {
+    if (availabilityZones.isEmpty()) {
+      throw new IllegalStateException("servers were started without availability zones");
+    }
+    String cacheKey = readFrom + "@" + clientAz;
+    GlideClient cached = azClients.get(cacheKey);
+    if (cached != null) {
+      return cached;
+    }
+    GlideClient client =
+        newClient(readFrom, clientAz, containers.toArray(new GenericContainer<?>[0]));
+    azClients.put(cacheKey, client);
+    return client;
+  }
+
+  /**
+   * Builds a standalone client over the host-mapped addresses of the given containers. A
+   * {@code clientAz} of null leaves the client in no zone, which is the only sensible thing for a
+   * strategy that does not read one.
+   */
+  private GlideClient newClient(final ReadFrom readFrom, final String clientAz,
+      final GenericContainer<?>... targets) throws Exception {
     List<NodeAddress> addresses = Arrays.stream(targets)
         .map(c -> NodeAddress.builder().host(c.getHost()).port(c.getFirstMappedPort()).build())
         .toList();
-    LOGGER.info("connecting to {} readFrom={}", addresses, readFrom);
+    LOGGER.info("connecting to {} readFrom={} clientAz={}", addresses, readFrom, clientAz);
 
     BackoffStrategy backoff = BackoffStrategy.builder().numOfRetries(3).factor(2).exponentBase(10).build();
     GlideClientConfiguration config = GlideClientConfiguration.builder()
         .addresses(addresses)
         .readFrom(readFrom)
+        // Passed as-is, null included: a null zone is left out of the connection request, which
+        // is what a strategy that does not read one wants.
+        .clientAZ(clientAz)
         .reconnectStrategy(backoff)
         .build();
 

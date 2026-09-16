@@ -35,6 +35,7 @@ Valkey version.
 | `StandaloneCommandsTest` | one node | the server identifies itself as a Valkey primary; writes read back and show up in `RANDOMKEY` |
 | `ReplicationTest` | primary + replica | the primary runs the version under test; both nodes report the replication link up; a primary write is readable from the replica; the replica rejects writes |
 | `ClusterTest` | three shards | every node runs the version under test; a client discovers every node from a single seed address; every node agrees the slots are covered; a key lands only on the shard owning its slot |
+| `AzAffinityTest` | primary + two replicas, three zones | each node reports the zone it was started in; `AZ_AFFINITY` reads only from the replica in the client's zone and falls back to the other replicas when there is none; writes still go to the primary; only `AZ_AFFINITY_REPLICAS_AND_PRIMARY` will read from a primary sharing the client's zone |
 
 `ReplicationTest` and `ClusterTest` run once per supported Valkey major — 8 and 9 today, pinned to
 exact patches in `ValkeyImage` — because the reply formats they assert on (`role:master`,
@@ -50,6 +51,11 @@ Two Testcontainers fixtures stand up every topology in the table above:
 - `ValkeyReplication.withReplicas(n)` — a primary and `n` replicas, one container each, with a
   barrier that waits for the replication link before a test runs. `withReplicas(0)` is how the
   standalone tests get a lone primary.
+- `ValkeyReplication.withAvailabilityZones(zones)` — the same primary-and-replicas shape, one node
+  per zone named (primary first), each started with that zone as its `availability-zone`. The zones
+  are labels rather than a claim about where anything runs, which is all a client's AZ-affinity
+  routing goes on: GLIDE asks each node for its own setting and compares it to the zone the client
+  was given. `azAwareClient(readFrom, clientAz)` is the matching client.
 - `ValkeyCluster.withShards(n)` — an `n`-shard cluster splitting the 16384 hash slots, with a
   barrier that waits for slot coverage. `n` is at least 3, because Valkey itself will not form a
   cluster with fewer primaries.
