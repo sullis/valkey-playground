@@ -28,6 +28,34 @@ The first run pulls the Valkey images, so allow it some time. Surefire runs the 
 parallel across up to 8 forked JVMs (`forkCount`), and cluster formation costs a few seconds per
 Valkey version.
 
+## Code coverage
+
+A `mvn test` run writes a JaCoCo report to `target/site/jacoco/index.html`. What it measures is the
+fixtures: there is no `src/main/java` here, so the only code a report can cover is the one under
+`src/test/java`, and the pom points the build's output directory and source directory at that tree
+to make it visible to JaCoCo, whose report goal reads those and takes no class directory of its
+own. Read it as "which fixture paths does the suite actually exercise" rather than as a quality
+bar — a fixture method no test calls shows up here as an uncovered one.
+
+Because surefire forks, the agent writes one execution file per fork to `target/jacoco/`
+(`${surefire.forkNumber}` in the agent's `argLine`, expanded per fork), which a `merge` execution
+folds into `target/jacoco.exec` before the report runs. Eight JVMs appending to a single shared
+file would race.
+
+A `check` execution then fails the build under **95% instruction coverage** over the bundle
+(`jacoco.minimum.coverage` in the pom). Instructions rather than branches, and one bundle-wide
+rule rather than a per-class one: the test classes are covered by definition, so both of the
+other choices would amount to a floor on the fixtures alone, and fixture branch coverage is
+mostly error paths that a passing run never takes.
+
+The floor applies to the whole tree, so a run narrowed to one class will trip it — coverage of
+everything is not a meaningful number when surefire only ran `ClusterTest`. Add
+`-Djacoco.check.skip=true` to those runs:
+
+```sh
+mvn -ntp test -Dtest=ClusterTest -Djacoco.check.skip=true
+```
+
 ## What it covers
 
 | Test | Topology | Asserts |
@@ -60,8 +88,10 @@ Two Testcontainers fixtures stand up every topology in the table above:
   barrier that waits for slot coverage. `n` is at least 3, because Valkey itself will not form a
   cluster with fewer primaries.
 
-Both default to `ValkeyImage.DEFAULT_VALKEY_IMAGE`, and `withImage(image, n)` is the same fixture
-on a version a test names. It has to be a Valkey image or a rebuild of one: the fixtures run
+Both default to `ValkeyImage.DEFAULT_VALKEY_IMAGE`, and both can be put on a version a test names,
+though they say so differently: `ValkeyReplication.withImage(image, n)` is a second factory, while
+a cluster takes the modifier `ValkeyCluster.withShards(n).onImage(image)`, so that every cluster is
+declared the one way. The image has to be a Valkey image or a rebuild of one: the fixtures run
 `valkey-server` by name, shell out to `valkey-cli`, and wait on Valkey's own readiness log line, so
 a Redis image surfaces as a startup timeout rather than as a clear error.
 

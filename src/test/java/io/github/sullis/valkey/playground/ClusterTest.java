@@ -48,7 +48,7 @@ public class ClusterTest {
 
   @BeforeParameterizedClassInvocation
   static void startCluster(final DockerImageName image) throws Exception {
-    cluster = ValkeyCluster.withImage(image, NUM_SHARDS);
+    cluster = ValkeyCluster.withShards(NUM_SHARDS).onImage(image);
     cluster.start();
   }
 
