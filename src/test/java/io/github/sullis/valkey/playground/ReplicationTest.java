@@ -77,6 +77,9 @@ public class ReplicationTest {
 
     assertThat(get(servers.primaryClient().info(new Section[]{Section.SERVER})))
         .contains("valkey_version:" + version);
+
+    assertThat(get(servers.replicaReadingClient().info(new Section[]{Section.SERVER})))
+            .contains("valkey_version:" + version);
   }
 
   @Test
