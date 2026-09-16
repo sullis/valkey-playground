@@ -19,6 +19,11 @@
     <logback.version>1.6.3</logback.version>
     <slf4j.version>2.0.19</slf4j.version>
     <skip.tests>false</skip.tests>
+    <!-- The bundle-wide instruction coverage the jacoco check execution enforces. -->
+    <jacoco.minimum.coverage>0.95</jacoco.minimum.coverage>
+    <!-- An escape hatch for a partial run: coverage of the whole tree is not a meaningful
+         number when surefire was pointed at one class, so -Dtest=Foo wants this set too. -->
+    <jacoco.check.skip>false</jacoco.check.skip>
   </properties>
 
     <dependencyManagement>
@@ -132,6 +137,16 @@
   </dependencies>
 
   <build>
+    <!--
+      The whole project lives under src/test/java: there is no src/main/java and nothing to
+      publish. JaCoCo's report goal has no class-directory setting; it reads the build's
+      output directory and compile source roots, so measuring the fixtures at all means
+      pointing both of those at the test tree. maven-compiler-plugin below skips the main
+      compile, since these sources need the test-scoped dependencies to compile at all.
+    -->
+    <sourceDirectory>src/test/java</sourceDirectory>
+    <outputDirectory>${project.build.directory}/test-classes</outputDirectory>
+
     <plugins>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -145,6 +160,10 @@
           <artifactId>maven-compiler-plugin</artifactId>
           <version>3.16.0</version>
           <configuration>
+            <!-- sourceDirectory is the test tree, which testCompile already builds on the
+                 test classpath; compiling it a second time as main sources would fail on the
+                 test-scoped dependencies it imports. -->
+            <skipMain>true</skipMain>
           </configuration>
       </plugin>
       <plugin>
@@ -161,6 +180,88 @@
           <forkCount>8</forkCount>
           <reuseForks>true</reuseForks>
         </configuration>
+      </plugin>
+
+      <!--
+        Declared after surefire on purpose: the merge and report executions below are bound to
+        the test phase, and goals within one phase run in the order their plugins appear here,
+        so moving this above surefire would report on an execution file that does not exist yet.
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>0.8.15</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+            <configuration>
+              <!-- One execution file per fork. surefire runs up to forkCount JVMs at once and
+                   expands ${surefire.forkNumber} per fork in the argLine this goal sets; a
+                   single shared destFile would have eight JVMs appending to it concurrently. -->
+              <destFile>${project.build.directory}/jacoco/fork-${surefire.forkNumber}.exec</destFile>
+            </configuration>
+          </execution>
+          <execution>
+            <id>merge</id>
+            <phase>test</phase>
+            <goals>
+              <goal>merge</goal>
+            </goals>
+            <configuration>
+              <fileSets>
+                <fileSet>
+                  <directory>${project.build.directory}/jacoco</directory>
+                  <includes>
+                    <include>fork-*.exec</include>
+                  </includes>
+                </fileSet>
+              </fileSets>
+              <destFile>${project.build.directory}/jacoco.exec</destFile>
+            </configuration>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>test</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+            <configuration>
+              <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+            </configuration>
+          </execution>
+          <execution>
+            <id>check</id>
+            <phase>test</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <configuration>
+              <skip>${jacoco.check.skip}</skip>
+              <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+              <rules>
+                <rule>
+                  <!-- One rule over the whole bundle rather than a per-class one: the fixtures
+                       carry the uncovered code and the tests are covered by definition, so a
+                       per-class floor would be a floor on the fixtures alone. -->
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <!-- Instructions, not branches. Branch coverage of this tree sits under
+                           this floor already, largely on fixture error paths a passing run
+                           never takes. -->
+                      <counter>INSTRUCTION</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>${jacoco.minimum.coverage}</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
 
     </plugins>

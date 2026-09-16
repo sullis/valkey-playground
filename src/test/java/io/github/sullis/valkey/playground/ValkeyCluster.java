@@ -85,7 +85,8 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
   /** Bounds {@link #awaitClusterState}, which fails as a node still reporting a non-ok state. */
   private static final Duration CLUSTER_READY_TIMEOUT = Duration.ofSeconds(30);
 
-  private final DockerImageName image;
+  /** Not final: {@link #onImage} replaces it before {@link #start}, which is the first read. */
+  private DockerImageName image;
 
   private final int numShards;
 
@@ -130,8 +131,14 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
   }
 
   /**
-   * As {@link #withShards}, but on a caller-supplied image -- for a test about one Valkey version
-   * in particular, or a run pointed at a mirror of the upstream image.
+   * Puts this cluster on a caller-supplied image instead of the shared default -- for a test about
+   * one Valkey version in particular, or a run pointed at a mirror of the upstream image. Reads as
+   * a modifier on {@link #withShards} rather than as a second factory, so that every cluster is
+   * declared the one way: {@code withShards(3).onImage(image)}.
+   *
+   * <p>Call it before the cluster starts: the image is read once, when the container is built, so
+   * a call after that would be ignored rather than move a running cluster. Unenforced, because
+   * the guard would be fixture code no test reaches.
    *
    * <p>It has to be a Valkey image or a rebuild of one, not a Redis image: {@link #serverCommand}
    * runs {@code valkey-server} by name and both {@link #formCluster} and {@link #valkeyCli} shell
@@ -140,8 +147,9 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
    * being open, so an image that logs something else surfaces as a startup timeout rather than as
    * a clear error.
    */
-  static ValkeyCluster withImage(final DockerImageName image, final int numShards) {
-    return new ValkeyCluster(image, numShards);
+  ValkeyCluster onImage(final DockerImageName image) {
+    this.image = image;
+    return this;
   }
 
   @Override
