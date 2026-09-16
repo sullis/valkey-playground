@@ -19,10 +19,13 @@
     <logback.version>1.6.3</logback.version>
     <slf4j.version>2.0.19</slf4j.version>
     <skip.tests>false</skip.tests>
-    <!-- The bundle-wide instruction coverage the jacoco check execution enforces. -->
-    <jacoco.minimum.coverage>0.95</jacoco.minimum.coverage>
-    <!-- An escape hatch for a partial run: coverage of the whole tree is not a meaningful
-         number when surefire was pointed at one class, so -Dtest=Foo wants this set too. -->
+    <!-- The bundle-wide instruction coverage the jacoco check execution enforces. The bundle is
+         the fixtures under src/main/java and nothing else, so this is a floor on how much of them
+         the suite exercises; the suite sits a little above it. It was 0.95 while the test classes
+         were in the bundle too, inflating the ratio with code that is covered by definition. -->
+    <jacoco.minimum.coverage>0.90</jacoco.minimum.coverage>
+    <!-- An escape hatch for a partial run: fixture coverage is not a meaningful number when
+         surefire was pointed at one class, so -Dtest=Foo wants this set too. -->
     <jacoco.check.skip>false</jacoco.check.skip>
   </properties>
 
@@ -50,7 +53,6 @@
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers</artifactId>
-      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
@@ -61,13 +63,11 @@
       <groupId>org.assertj</groupId>
       <artifactId>assertj-core</artifactId>
       <version>4.0.0-M1</version>
-      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.awaitility</groupId>
       <artifactId>awaitility</artifactId>
       <version>4.3.0</version>
-      <scope>test</scope>
     </dependency>
     <dependency>
       <!-- The classifier-less artifact bundles the native library for every platform. The
@@ -110,7 +110,6 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-api</artifactId>
-      <scope>test</scope>
     </dependency>
     <dependency>
         <groupId>org.junit.jupiter</groupId>
@@ -137,16 +136,6 @@
   </dependencies>
 
   <build>
-    <!--
-      The whole project lives under src/test/java: there is no src/main/java and nothing to
-      publish. JaCoCo's report goal has no class-directory setting; it reads the build's
-      output directory and compile source roots, so measuring the fixtures at all means
-      pointing both of those at the test tree. maven-compiler-plugin below skips the main
-      compile, since these sources need the test-scoped dependencies to compile at all.
-    -->
-    <sourceDirectory>src/test/java</sourceDirectory>
-    <outputDirectory>${project.build.directory}/test-classes</outputDirectory>
-
     <plugins>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -159,12 +148,6 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
           <version>3.16.0</version>
-          <configuration>
-            <!-- sourceDirectory is the test tree, which testCompile already builds on the
-                 test classpath; compiling it a second time as main sources would fail on the
-                 test-scoped dependencies it imports. -->
-            <skipMain>true</skipMain>
-          </configuration>
       </plugin>
       <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -243,9 +226,9 @@
               <dataFile>${project.build.directory}/jacoco.exec</dataFile>
               <rules>
                 <rule>
-                  <!-- One rule over the whole bundle rather than a per-class one: the fixtures
-                       carry the uncovered code and the tests are covered by definition, so a
-                       per-class floor would be a floor on the fixtures alone. -->
+                  <!-- One rule over the whole bundle rather than a per-class one, so that a small
+                       fixture with an uncovered branch or two does not have to clear the same bar
+                       as the tree as a whole. -->
                   <element>BUNDLE</element>
                   <limits>
                     <limit>
