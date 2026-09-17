@@ -61,9 +61,13 @@
       <artifactId>testcontainers</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.testcontainers</groupId>
-      <artifactId>testcontainers-junit-jupiter</artifactId>
-      <scope>test</scope>
+      <!-- A transitive of testcontainers, declared here because the fixtures import ExposedPort
+           and Ports directly to bind a container port to the same port on the host. Its version
+           is not managed by testcontainers-bom, so it is pinned here and tracks whatever
+           testcontainers resolves. -->
+      <groupId>com.github.docker-java</groupId>
+      <artifactId>docker-java-api</artifactId>
+      <version>3.7.1</version>
     </dependency>
     <dependency>
       <groupId>org.assertj</groupId>
@@ -84,23 +88,17 @@
       <version>2.5.2</version>
     </dependency>
     <dependency>
-      <groupId>org.apache.commons</groupId>
-      <artifactId>commons-lang3</artifactId>
-      <version>3.20.0</version>
-    </dependency>
-    <dependency>
-      <groupId>commons-io</groupId>
-      <artifactId>commons-io</artifactId>
-      <version>2.22.0</version>
+      <!-- Annotations only: @Nullable has class retention and nothing reads it at runtime, so
+           this is provided rather than compile. It also arrives transitively via valkey-glide,
+           which is what it was compiling against before. -->
+      <groupId>org.jspecify</groupId>
+      <artifactId>jspecify</artifactId>
+      <version>1.0.0</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
-      <version>${slf4j.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>jul-to-slf4j</artifactId>
       <version>${slf4j.version}</version>
     </dependency>
     <dependency>
