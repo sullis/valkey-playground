@@ -12,7 +12,8 @@ There is no library to depend on and nothing to publish. The Testcontainers fixt
 
 ## Requirements
 
-- Java 21 (`.sdkmanrc` pins `21.0.6-tem`; run `sdk env` to use it)
+- Java 17 or newer (`.sdkmanrc` pins `21.0.6-tem`; run `sdk env` to use it). The compiler
+  targets 17, and CI builds on 17 and 21.
 - A running Docker daemon, reachable by Testcontainers
 - Maven 3.9+ (no wrapper; CI invokes `mvn` directly)
 
