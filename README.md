@@ -31,8 +31,8 @@ Valkey version.
 
 Two checks run before any container starts, so that a build broken in these ways fails in seconds
 rather than after the suite. The enforcer rules hold the Maven and Java floors above and reject a
-dependency that resolves *below* a version something else asked for, which is what keeps the
-hand-pinned `docker-java-api` from silently downgrading the one Testcontainers wants. The javadoc
+dependency that resolves *below* a version something else asked for, which would otherwise surface
+at runtime as a `NoSuchMethodError` rather than at build time. The javadoc
 pass publishes nothing: it is there to catch a `{@link}` left pointing at a method that has since
 been renamed. It runs over the tests as well as the fixtures, because the test classes are the ones
 that explain themselves by naming classes they never call. Missing `@param`/`@return` tags are

@@ -64,15 +64,6 @@
       <artifactId>testcontainers</artifactId>
     </dependency>
     <dependency>
-      <!-- A transitive of testcontainers, declared here because the fixtures import ExposedPort
-           and Ports directly to bind a container port to the same port on the host. Its version
-           is not managed by testcontainers-bom, so it is pinned here and tracks whatever
-           testcontainers resolves. -->
-      <groupId>com.github.docker-java</groupId>
-      <artifactId>docker-java-api</artifactId>
-      <version>3.7.1</version>
-    </dependency>
-    <dependency>
       <groupId>org.assertj</groupId>
       <artifactId>assertj-core</artifactId>
       <version>4.0.0-M1</version>
@@ -156,11 +147,10 @@
                   <requireJavaVersion>
                     <version>[17,)</version>
                   </requireJavaVersion>
-                  <!-- docker-java-api is pinned by hand, because testcontainers-bom does not
-                       manage it. Such a pin can only go stale downwards, and silently: the day
-                       testcontainers asks for a newer one, maven resolves the older version
-                       named here and the mismatch surfaces at runtime as a NoSuchMethodError.
-                       This rule turns that into a build failure naming both versions. -->
+                  <!-- Maven's nearest-wins resolution will quietly pick a version *below* what
+                       some other dependency asked for, and the mismatch surfaces at runtime as a
+                       NoSuchMethodError rather than at build time. This rule turns that into a
+                       build failure naming both versions. -->
                   <requireUpperBoundDeps/>
                   <banDuplicatePomDependencyVersions/>
                 </rules>
