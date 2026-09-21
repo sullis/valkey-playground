@@ -146,11 +146,18 @@ public class AzAffinityTest {
   /**
    * Writes a key on the primary and waits for the replicas to have it, so that a read routed to
    * either of them is a statement about routing rather than about replication lag.
+   *
+   * <p>The wait goes through {@code client} -- the one that issued the write -- and not through
+   * some other client that also reaches the primary. WAIT reports on the offset of the connection
+   * it arrives on, so asking a connection that has written nothing returns the replica count
+   * straight away: the assertion inside {@code awaitReplication} would still pass, and the barrier
+   * would be doing nothing. Reads are what these strategies route; WAIT is not one, so it lands on
+   * the primary whatever {@code readFrom} the client was built with.
    */
   private static String writeKey(final GlideClient client) throws Exception {
     String key = UUID.randomUUID().toString();
     get(client.set(key, "value-" + key));
-    servers.awaitReplication(servers.primaryClient());
+    servers.awaitReplication(client);
     return key;
   }
 
