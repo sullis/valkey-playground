@@ -3,6 +3,9 @@ name: build
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -11,6 +14,10 @@ jobs:
         os: [ 'ubuntu-latest' ]
     runs-on: ${{ matrix.os }}
     name: Java ${{ matrix.java }} ${{ matrix.os }}
+    # The suite runs in well under a minute. This is a bound on a build that has stopped making
+    # progress at all -- a docker pull or a testcontainers wait that never returns -- which
+    # would otherwise hold a runner for the six hour default.
+    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v7
     - name: Set up JDK

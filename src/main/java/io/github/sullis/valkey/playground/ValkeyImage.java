@@ -9,7 +9,7 @@ import org.testcontainers.utility.DockerImageName;
  * cannot drift onto different versions by default -- two fixtures on two versions would make a
  * difference between them look like a difference between replication and cluster mode. A test
  * that wants a particular version says so explicitly, through
- * {@link ValkeyReplication#withImage} or {@link ValkeyCluster#withImage}.
+ * {@link ValkeyReplication#withImage} or {@link ValkeyCluster#onImage}.
  */
 final class ValkeyImage {
   /**

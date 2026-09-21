@@ -13,6 +13,23 @@ on:
     branches:
       - main
 
+# Nothing here writes anything back to the repository; the one workflow that does
+# (dependabot auto-merge) asks for what it needs on the job that needs it.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Superseded pull request builds are wasted runner time. Pushes to main are not cancelled:
+  # the badge reports the newest completed run on main, and cancelling leaves it reporting a
+  # run that was abandoned rather than one that failed.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
+    # Dependabot's pull requests are built by the auto-merge workflow, which gates the merge on
+    # that build. Without this they would be built twice over, two runs of the same matrix per
+    # bump. Scoped to pull requests so that the push to main after one merges still builds,
+    # whichever actor the merge is attributed to.
+    if: github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'
     uses: ./.github/workflows/shared-build.yml
