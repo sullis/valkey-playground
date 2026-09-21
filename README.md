@@ -34,8 +34,10 @@ rather than after the suite. The enforcer rules hold the Maven and Java floors a
 dependency that resolves *below* a version something else asked for, which is what keeps the
 hand-pinned `docker-java-api` from silently downgrading the one Testcontainers wants. The javadoc
 pass publishes nothing: it is there to catch a `{@link}` left pointing at a method that has since
-been renamed. Missing `@param`/`@return` tags are deliberately not an error, because the fixtures
-explain themselves in prose rather than in tag boilerplate.
+been renamed. It runs over the tests as well as the fixtures, because the test classes are the ones
+that explain themselves by naming classes they never call. Missing `@param`/`@return` tags are
+deliberately not an error, because both trees explain themselves in prose rather than in tag
+boilerplate.
 
 ## Code coverage
 
@@ -108,7 +110,9 @@ a Redis image surfaces as a startup timeout rather than as a clear error.
 
 Unlike the replication fixture, a cluster runs all of its nodes in **one** container, announcing
 `127.0.0.1` on ports published one-to-one to the host and drawn consecutively from a random base
-between 20000 and 40000. A cluster client is given seed addresses but then connects to the ones the
+between 20000 and 32000 — below where Linux starts handing out ephemeral ports, so that nothing
+else on the machine is being offered the same ones. A cluster client is given seed addresses but
+then connects to the ones the
 cluster *advertises*, and loopback is the only address that means the same thing to a peer node and
 to a test JVM on the host. `ValkeyCluster`'s class comment has the long version, including why
 `--cluster-announce-ip` does not rescue a container-per-node shape.

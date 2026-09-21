@@ -200,6 +200,12 @@
         A lint pass over the comments rather than a docs site: nothing here is published, so
         what this is for is catching a {@link} that no longer resolves: a method renamed with
         the javadoc left behind. The output under target/reports/apidocs is a by-product.
+
+        Both trees, because both are full of {@link}s and the test tree is the one that names
+        classes it does not otherwise touch: ClusterExtensionTest explains itself in terms of
+        ClusterTest, FixtureContractTest in terms of ValkeyReplication#close(). Those are exactly
+        the references a rename leaves behind, and this project has renamed these classes
+        repeatedly. Both trees are clean today, so the gate holds for free.
       -->
       <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -224,6 +230,17 @@
               <phase>process-classes</phase>
               <goals>
                 <goal>javadoc-no-fork</goal>
+              </goals>
+            </execution>
+            <execution>
+              <id>check-test-javadoc</id>
+              <!-- process-test-classes for the same reason check-javadoc uses process-classes:
+                   it is the last phase before surefire, so this still fails ahead of any
+                   container. It cannot go earlier, because the test sources are not compiled
+                   until test-compile. -->
+              <phase>process-test-classes</phase>
+              <goals>
+                <goal>test-javadoc-no-fork</goal>
               </goals>
             </execution>
           </executions>
