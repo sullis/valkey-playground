@@ -19,7 +19,6 @@
     <maven.compiler.release>17</maven.compiler.release>
     <logback.version>1.6.3</logback.version>
     <slf4j.version>2.0.19</slf4j.version>
-    <skip.tests>false</skip.tests>
     <!-- The bundle-wide instruction coverage the jacoco check execution enforces. The bundle is
          the fixtures under src/main/java and nothing else, so this is a floor on how much of them
          the suite exercises; the suite sits a little above it. It was 0.95 while the test classes
@@ -136,18 +135,72 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-enforcer-plugin</artifactId>
           <version>3.6.3</version>
-          <configuration>
-          </configuration>
+          <executions>
+            <execution>
+              <id>enforce</id>
+              <goals>
+                <goal>enforce</goal>
+              </goals>
+              <configuration>
+                <rules>
+                  <!-- The floor the README states. Stated in one place would be stated
+                       nowhere: a contributor on an older maven finds out here rather than
+                       through whichever plugin happens to break first. -->
+                  <requireMavenVersion>
+                    <version>[3.9,)</version>
+                  </requireMavenVersion>
+                  <!-- maven.compiler.release is 17, and CI builds on 17 and 21. -->
+                  <requireJavaVersion>
+                    <version>[17,)</version>
+                  </requireJavaVersion>
+                  <!-- docker-java-api is pinned by hand, because testcontainers-bom does not
+                       manage it. Such a pin can only go stale downwards, and silently: the day
+                       testcontainers asks for a newer one, maven resolves the older version
+                       named here and the mismatch surfaces at runtime as a NoSuchMethodError.
+                       This rule turns that into a build failure naming both versions. -->
+                  <requireUpperBoundDeps/>
+                  <banDuplicatePomDependencyVersions/>
+                </rules>
+              </configuration>
+            </execution>
+          </executions>
         </plugin>
       <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
           <version>3.16.0</version>
       </plugin>
+      <!--
+        A lint pass over the comments rather than a docs site: nothing here is published, so
+        what this is for is catching a {@link} that no longer resolves: a method renamed with
+        the javadoc left behind. The output under target/reports/apidocs is a by-product.
+      -->
       <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-javadoc-plugin</artifactId>
           <version>3.12.0</version>
+          <configuration>
+            <!-- Every class in this tree is package-private, and at the default public-only
+                 visibility javadoc finds nothing to document and fails saying so. -->
+            <show>package</show>
+            <!-- The missing group is off on purpose. These fixtures explain themselves in
+                 prose, and turning that into @param/@return boilerplate to satisfy a linter
+                 would be a worse comment, not a better one. -->
+            <doclint>all,-missing</doclint>
+            <failOnWarnings>true</failOnWarnings>
+          </configuration>
+          <executions>
+            <execution>
+              <id>check-javadoc</id>
+              <!-- Bound into the main lifecycle rather than to verify, so that the `mvn test`
+                   the README gives runs it too, and so that it fails in about two seconds,
+                   before surefire starts forking JVMs and pulling images. -->
+              <phase>process-classes</phase>
+              <goals>
+                <goal>javadoc-no-fork</goal>
+              </goals>
+            </execution>
+          </executions>
       </plugin>
 
       <plugin>

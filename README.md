@@ -29,6 +29,14 @@ The first run pulls the Valkey images, so allow it some time. Surefire runs the 
 parallel across up to 8 forked JVMs (`forkCount`), and cluster formation costs a few seconds per
 Valkey version.
 
+Two checks run before any container starts, so that a build broken in these ways fails in seconds
+rather than after the suite. The enforcer rules hold the Maven and Java floors above and reject a
+dependency that resolves *below* a version something else asked for, which is what keeps the
+hand-pinned `docker-java-api` from silently downgrading the one Testcontainers wants. The javadoc
+pass publishes nothing: it is there to catch a `{@link}` left pointing at a method that has since
+been renamed. Missing `@param`/`@return` tags are deliberately not an error, because the fixtures
+explain themselves in prose rather than in tag boilerplate.
+
 ## Code coverage
 
 A `mvn test` run writes a JaCoCo report to `target/site/jacoco/index.html`. What it measures is the
