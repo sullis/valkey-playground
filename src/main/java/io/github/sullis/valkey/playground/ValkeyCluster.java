@@ -70,12 +70,20 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
   /**
    * Client ports are drawn consecutively from a random base rather than left to docker's random
    * mapping, which cannot be used here: the port has to be identical inside and outside the
-   * container. The band is bounded well below 65535 because each node also listens on its cluster
-   * bus port, which is its client port plus 10000; taking the ports consecutively keeps one node's
-   * bus port clear of another node's client port.
+   * container. Taking them consecutively also keeps one node's cluster bus port -- its client
+   * port plus 10000 -- clear of another node's client port. Only the client ports are ever bound
+   * on the host; a bus port is reached over the container's own loopback, so it needs to be free
+   * inside the container and nowhere else.
+   *
+   * <p>The band stops below 32768, where linux starts handing out ephemeral ports
+   * ({@code ip_local_port_range} defaults to 32768-60999, and CI runs on linux). A port here is
+   * only probed for being free and bound some time later, and that gap is exactly when the kernel
+   * -- or docker itself, mapping {@link ValkeyReplication}'s exposed ports in another surefire
+   * fork -- would hand the same port to something else. Out of the ephemeral range, the only
+   * thing competing for these ports is another cluster.
    */
   private static final int MIN_BASE_PORT = 20_000;
-  private static final int MAX_BASE_PORT = 40_000;
+  private static final int MAX_BASE_PORT = 32_000;
   private static final int PORT_ATTEMPTS = 20;
   private static final Random RANDOM = new Random();
 
@@ -90,7 +98,15 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
 
   private final int numShards;
 
-  private final List<Integer> ports;
+  /**
+   * The host ports the nodes listen on. Picked in {@link #startContainer} rather than in the
+   * constructor, because {@link #reservePorts} only establishes that a port was free at the
+   * moment it looked: the shorter the gap between that probe and docker binding the port, the
+   * less there is to lose it to. A fixture held as a static {@code @RegisterExtension} field is
+   * constructed when its test class loads and not started until {@code beforeAll}, which is a gap
+   * worth not having. Null until the cluster starts, as {@link #container} is.
+   */
+  private List<Integer> ports;
 
   /**
    * Assigned before the container is started rather than after, so that a start which fails
@@ -118,7 +134,6 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
     }
     this.image = image;
     this.numShards = numShards;
-    this.ports = reservePorts(numShards);
   }
 
   /**
@@ -182,6 +197,9 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
   }
 
   private void startContainer() {
+    // Picked here rather than at construction, so that as little as possible happens between
+    // probing a port and docker binding it -- see the ports field.
+    ports = reservePorts(numShards);
     container = new GenericContainer<>(image)
         .withExposedPorts(ports.toArray(new Integer[0]))
         // Publish each port to the identical host port, which withExposedPorts alone will not do.
