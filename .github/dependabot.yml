@@ -8,14 +8,11 @@ updates:
     open-pull-requests-limit: 20
     # Grouped by the thing being upgraded rather than left one pull request per artifact.
     # Families that share a release train produce one reviewable diff instead of four that
-    # each rebase the others, and the first group below is load-bearing: docker-java-api is
-    # pinned by hand in the pom because testcontainers-bom does not manage it, so it has to
-    # move in the same pull request as testcontainers or the pin goes stale.
+    # each rebase the others.
     groups:
       testcontainers:
         patterns:
           - "org.testcontainers:*"
-          - "com.github.docker-java:*"
       junit:
         patterns:
           - "org.junit:*"

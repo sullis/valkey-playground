@@ -1,7 +1,5 @@
 package io.github.sullis.valkey.playground;
 
-import com.github.dockerjava.api.model.ExposedPort;
-import com.github.dockerjava.api.model.Ports;
 import glide.api.GlideClusterClient;
 import glide.api.models.configuration.GlideClusterClientConfiguration;
 import glide.api.models.configuration.NodeAddress;
@@ -202,18 +200,17 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
     ports = reservePorts(numShards);
     container = new GenericContainer<>(image)
         .withExposedPorts(ports.toArray(new Integer[0]))
-        // Publish each port to the identical host port, which withExposedPorts alone will not do.
-        .withCreateContainerCmdModifier(cmd -> {
-          Ports bindings = new Ports();
-          ports.forEach(port -> bindings.bind(ExposedPort.tcp(port), Ports.Binding.bindPort(port)));
-          cmd.getHostConfig().withPortBindings(bindings);
-        })
         .withCommand("sh", "-c", serverCommand())
         .withLogConsumer(new Slf4jLogConsumer(LOGGER).withPrefix("cluster"))
         // The default port-listening probe can succeed before a server is serving commands, so
         // wait for the line each node logs once it is ready -- one per node.
         .waitingFor(Wait.forLogMessage(".*Ready to accept connections.*\\n", numShards))
         .withStartupTimeout(STARTUP_TIMEOUT);
+    // Publish each port to the identical host port, which withExposedPorts alone will not do:
+    // that one asks docker for an arbitrary free host port, and the whole arrangement here needs
+    // the port to mean the same thing inside the container and out. A setter rather than a
+    // with-method, which is why it sits outside the chain above.
+    container.setPortBindings(ports.stream().map(port -> port + ":" + port).toList());
     container.start();
     // The image is logged because a class parameterized over versions runs this once per
     // version, and surefire labels the invocations [1] and [2] rather than by image.
