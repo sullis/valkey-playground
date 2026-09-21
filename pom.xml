@@ -16,6 +16,9 @@
   </licenses>
 
   <properties>
+    <!-- Unset, maven falls back to the platform encoding for both resource filtering and
+         compilation, and says so twice per build. -->
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>17</maven.compiler.release>
     <logback.version>1.6.3</logback.version>
     <slf4j.version>2.0.19</slf4j.version>
@@ -165,10 +168,33 @@
             </execution>
           </executions>
         </plugin>
+      <!--
+        The compiler's own lint, turned up and made fatal, in the same spirit as the javadoc
+        pass below: this tree compiles clean today, so the gate holds for free and the first
+        warning it reports is a new one rather than the head of a backlog.
+
+        -classfile is the one category left out, and it is left out because it does not report
+        on this tree at all. It fires on annotations in a dependency's class files whose own
+        types are absent: @SuppressFBWarnings, which valkey-glide, byte-buddy, testcontainers
+        and docker-java all carry and none of them bring spotbugs-annotations along for. Six
+        warnings today, and nothing to do about any of them short of declaring a dependency
+        this project does not otherwise use.
+
+        -Xlint:all is whatever the JDK in hand knows about, so a JDK newer than CI's 17 and 21
+        can introduce a category this tree has never been held to. That is the gate working,
+        but it does mean a contributor can see a failure CI does not.
+      -->
       <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
           <version>3.16.0</version>
+          <configuration>
+            <compilerArgs>
+              <arg>-Xlint:all,-classfile</arg>
+            </compilerArgs>
+            <!-- -Werror. -->
+            <failOnWarning>true</failOnWarning>
+          </configuration>
       </plugin>
       <!--
         A lint pass over the comments rather than a docs site: nothing here is published, so
