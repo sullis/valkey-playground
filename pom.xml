@@ -20,8 +20,8 @@
          compilation, and says so twice per build. -->
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>17</maven.compiler.release>
-    <logback.version>1.6.3</logback.version>
-    <slf4j.version>2.0.19</slf4j.version>
+    <logback.version>1.6.4</logback.version>
+    <slf4j.version>2.0.20</slf4j.version>
     <!-- The bundle-wide instruction coverage the jacoco check execution enforces. The bundle is
          the fixtures under src/main/java and nothing else, so this is a floor on how much of them
          the suite exercises; the suite sits a little above it. It was 0.95 while the test classes
