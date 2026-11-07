@@ -152,3 +152,7 @@ and call `flushKeyspace()` first in a test that asserts over the whole keyspace,
 ## License
 
 [Apache License 2.0](LICENSE)
+
+## Related work
+
+- https://github.com/sullis/redis-playground
