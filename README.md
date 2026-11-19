@@ -78,12 +78,12 @@ mvn -ntp test -Dtest=ClusterTest -Djacoco.check.skip=true
 | `ClusterTest` | three shards | every node runs the version under test; a client discovers every node from a single seed address; every node agrees the slots are covered; a key lands only on the shard owning its slot |
 | `AzAffinityTest` | primary + two replicas, three zones | each node reports the zone it was started in; `AZ_AFFINITY` reads only from the replica in the client's zone and falls back to the other replicas when there is none; writes still go to the primary; only `AZ_AFFINITY_REPLICAS_AND_PRIMARY` will read from a primary sharing the client's zone |
 
-`ReplicationTest` and `ClusterTest` run once per supported Valkey major — 8 and 9 today, pinned to
+`ReplicationTest` and `ClusterTest` run once per supported Valkey release — 8.1, 9.1 and 9.2 today, pinned to
 exact patches in `ValkeyImage` — because the reply formats they assert on (`role:master`,
 `connected_slaves`, `CLUSTER INFO` fields) are a protocol surface, and a major release is the place
 to change one. A pin is a patch rather than a floating `8` or `latest` so that a run either
 reproduces or is not evidence of anything. The unparameterized tests run
-`ValkeyImage.DEFAULT_VALKEY_IMAGE`, the newest supported major.
+`ValkeyImage.DEFAULT_VALKEY_IMAGE`, the newest supported release.
 
 ## Fixtures
 
