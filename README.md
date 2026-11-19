@@ -125,7 +125,7 @@ Pick the fixture the behaviour needs, then pick a lifecycle:
   `@RegisterExtension` and leave the lifecycle to JUnit. `StandaloneCommandsTest` is the short
   example.
 - **The behaviour is a reply format, or anything a major release could change.** Make the class
-  `@ParameterizedClass` over `ValkeyImage.SUPPORTED_MAJORS` and drive the fixture from
+  `@ParameterizedClass` over `ValkeyImage.SUPPORTED_VERSIONS` and drive the fixture from
   `@BeforeParameterizedClassInvocation` / `@AfterParameterizedClassInvocation`, as `ReplicationTest`
   and `ClusterTest` do. A static `@RegisterExtension` field cannot work here: it is set up once,
   before any invocation and so before any image exists.

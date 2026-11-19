@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ParameterizedClass(name = "{0}")
 @FieldSource("IMAGES")
 public class ReplicationTest {
-  static final List<DockerImageName> IMAGES = ValkeyImage.SUPPORTED_MAJORS;
+  static final List<DockerImageName> IMAGES = ValkeyImage.SUPPORTED_VERSIONS;
 
   /**
    * The image this invocation runs. Declaring it is what makes the class parameterized at all --
