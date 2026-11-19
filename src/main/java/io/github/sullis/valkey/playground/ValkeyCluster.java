@@ -343,7 +343,7 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
    * needing fixed ports at all, and it surfaces as a container that fails to start rather than as
    * a wrong answer.
    */
-  private static List<Integer> reservePorts(final int count) {
+  static List<Integer> reservePorts(final int count) {
     for (int attempt = 0; attempt < PORT_ATTEMPTS; attempt++) {
       int base = MIN_BASE_PORT + RANDOM.nextInt(MAX_BASE_PORT - MIN_BASE_PORT - count);
       List<Integer> candidate = IntStream.range(0, count).map(i -> base + i).boxed().toList();
@@ -355,7 +355,7 @@ final class ValkeyCluster implements BeforeAllCallback, AfterAllCallback {
         "could not find " + count + " consecutive free ports in " + PORT_ATTEMPTS + " attempts");
   }
 
-  private static boolean isFree(final int port) {
+  static boolean isFree(final int port) {
     try (ServerSocket probe = new ServerSocket(port)) {
       return probe.getLocalPort() == port;
     } catch (IOException e) {
