@@ -36,7 +36,7 @@ final class ValkeyImage {
    * behaviour or a reply format that changed between releases, and a patch release that changed
    * either would be a bug in Valkey rather than something a test here should be pinned against.
    */
-  static final List<DockerImageName> SUPPORTED_MAJORS =
+  static final List<DockerImageName> SUPPORTED_VERSIONS =
       List.of(VALKEY_8, VALKEY_9_1, VALKEY_9_2);
 
   private ValkeyImage() {

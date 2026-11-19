@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class ClusterTest {
   private static final int NUM_SHARDS = 3;
 
-  static final List<DockerImageName> IMAGES = ValkeyImage.SUPPORTED_MAJORS;
+  static final List<DockerImageName> IMAGES = ValkeyImage.SUPPORTED_VERSIONS;
 
   /**
    * The image this invocation runs. Declaring it is what makes the class parameterized at all --
